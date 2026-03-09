@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>自动化写书</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      background: #f8f9fa;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      color: #0d6efd;
+    }
+    .subtitle {
+      color: #6c757d;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    section {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+    section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem 0;
+      color: #212529;
+    }
+    .step {
+      margin-bottom: 1rem;
+    }
+    .step:last-child { margin-bottom: 0; }
+    .step strong { color: #0d6efd; }
+    code, .cmd {
+      display: block;
+      background: #f1f3f5;
+      padding: 0.6rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin: 0.35rem 0;
+      font-family: "Consolas", "Monaco", monospace;
+      overflow-x: auto;
+    }
+    .cmd { border-left: 3px solid #0d6efd; }
+    a.btn {
+      display: inline-block;
+      background: #0d6efd;
+      color: #fff;
+      text-decoration: none;
+      padding: 0.65rem 1.25rem;
+      border-radius: 6px;
+      font-weight: 500;
+      margin: 0.5rem 0.5rem 0.5rem 0;
+      transition: background .15s;
+    }
+    a.btn:hover { background: #0b5ed7; }
+    a.btn.secondary {
+      background: #6c757d;
+    }
+    a.btn.secondary:hover { background: #5c636a; }
+    .tip {
+      font-size: 0.85rem;
+      color: #6c757d;
+      margin-top: 0.5rem;
+    }
+    #status {
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      display: none;
+    }
+    #status.ok { display: block; background: #d1e7dd; color: #0f5132; }
+    #status.fail { display: block; background: #f8d7da; color: #842029; }
+  </style>
+</head>
+<body>
+  <h1>📚 自动化写书</h1>
+  <p class="subtitle">创作控制台入口</p>
+
+  <section>
+    <h2>打开创作控制台</h2>
+    <p>请先在项目目录下启动 API 服务，再点击下方按钮。</p>
+    <a href="http://127.0.0.1:5000" target="_blank" rel="noopener" class="btn">打开创作控制台</a>
+    <button type="button" class="btn secondary" onclick="checkServer()">检测服务是否已启动</button>
+    <div id="status"></div>
+    <p class="tip">前端地址：<code>http://127.0.0.1:5000</code>（运行 <code>py api_server.py</code> 后生效）</p>
+  </section>
+
+  <section>
+    <h2>使用步骤</h2>
+    <div class="step">
+      <strong>1. 安装依赖</strong>
+      <span class="cmd">py -m pip install -r requirements.txt</span>
+      <p class="tip">在项目根目录下执行。</p>
+    </div>
+    <div class="step">
+      <strong>2. 配置 .env</strong>
+      <p>在项目根目录创建 <code>.env</code>，填入 <code>DEEPSEEK_API_KEY</code> 或 <code>MOONSHOT_API_KEY</code>。</p>
+    </div>
+    <div class="step">
+      <strong>3. 启动前端服务</strong>
+      <span class="cmd">py api_server.py</span>
+      <p class="tip">启动后浏览器打开 <strong>http://127.0.0.1:5000</strong>，在页面内：选择/新建书籍 → 选模型 → 生成全书大纲 → 从大纲创建章节 → 对每章点击「扩写本章」。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>常用链接</h2>
+    <a href="http://127.0.0.1:5000" target="_blank" rel="noopener" class="btn secondary">创作控制台</a>
+    <a href="README.md" class="btn secondary">README.md</a>
+  </section>
+
+  <script>
+    function checkServer() {
+      var status = document.getElementById('status');
+      status.className = '';
+      status.textContent = '正在检测…';
+      status.style.display = 'block';
+      fetch('http://127.0.0.1:5000/api/books').then(function(r) {
+        status.className = 'ok';
+        status.textContent = '服务已启动，可点击「打开创作控制台」进入。';
+      }).catch(function() {
+        status.className = 'fail';
+        status.textContent = '未检测到服务。请先在终端执行：py api_server.py';
+      });
+    }
+  </script>
+</body>
+</html>

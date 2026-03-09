@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>自动化写书</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; color: #222; }
+    .container { max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 0 0 1rem 0; color: #1565c0; }
+    .card { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .card h2 { font-size: 1rem; margin: 0 0 0.75rem 0; color: #333; }
+    label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
+    input[type="text"], textarea, select { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+    textarea { min-height: 80px; resize: vertical; }
+    button, .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; background: #1565c0; color: #fff; }
+    button:hover, .btn:hover { background: #0d47a1; }
+    button:disabled { background: #9e9e9e; cursor: not-allowed; }
+    button.secondary { background: #757575; }
+    a.btn.disabled { background: #9e9e9e; cursor: not-allowed; pointer-events: none; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+    .row > * { flex: 1; min-width: 200px; }
+    .error { background: #ffebee; color: #c62828; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; font-size: 13px; }
+    .success { background: #e8f5e9; color: #2e7d32; padding: 0.5rem; border-radius: 4px; margin-bottom: 0.5rem; font-size: 13px; }
+    .muted { color: #666; font-size: 13px; margin-top: 0.25rem; }
+    pre, .outline-preview, .chapter-preview { white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto; padding: 0.75rem; background: #fafafa; border-radius: 4px; font-size: 13px; }
+    .chapter-item { padding: 0.5rem 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .chapter-item:last-child { border-bottom: none; }
+    .chapter-item span { cursor: pointer; flex: 1; }
+    .chapter-item.active { background: #e3f2fd; }
+    #msg { margin-bottom: 0.5rem; }
+    .module-status { font-size: 0.85rem; font-weight: normal; color: #0d47a1; margin-left: 0.5rem; }
+    .module-status.running { color: #1565c0; }
+    .module-status.done { color: #2e7d32; }
+    .outline-preview h1, .chapter-preview h1 { font-size: 1.1rem; margin: 0.5rem 0; }
+    .outline-preview h2, .chapter-preview h2 { font-size: 1rem; margin: 0.5rem 0; }
+    .outline-preview h3, .chapter-preview h3 { font-size: 0.95rem; margin: 0.4rem 0; }
+    .outline-preview p, .chapter-preview p { margin: 0.35rem 0; line-height: 1.5; }
+    .outline-preview ul, .chapter-preview ul { margin: 0.35rem 0; padding-left: 1.25rem; }
+    .outline-preview ol, .chapter-preview ol { margin: 0.35rem 0; padding-left: 1.25rem; }
+    .outline-preview code, .chapter-preview code { background: #eee; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    .outline-preview pre, .chapter-preview pre { white-space: pre-wrap; background: #f0f0f0; padding: 0.5rem; border-radius: 4px; overflow-x: auto; }
+    /* 内容类型：按钮式选择 */
+    .content-type-group { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid #ccc; }
+    .content-type-group .content-type-btn { padding: 0.45rem 1rem; border: none; background: #fff; color: #555; font-size: 14px; cursor: pointer; border-right: 1px solid #ccc; }
+    .content-type-group .content-type-btn:last-child { border-right: none; }
+    .content-type-group .content-type-btn:hover { background: #f0f0f0; }
+    .content-type-group .content-type-btn.active { background: #1565c0; color: #fff; font-weight: 500; }
+    .content-type-group .content-type-btn.active:hover { background: #0d47a1; }
+    .content-type-hint { font-size: 12px; color: #666; margin-top: 0.35rem; line-height: 1.4; }
+    .content-type-hint strong { color: #333; }
+    /* 生成完成提示弹窗 */
+    .result-modal-overlay { display: none; position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 9999; align-items: center; justify-content: center; }
+    .result-modal-overlay.show { display: flex; }
+    .result-modal { background: #fff; border-radius: 10px; padding: 1.5rem; min-width: 280px; max-width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.15); position: relative; }
+    .result-modal .result-modal-close { position: absolute; right: 0.75rem; top: 0.75rem; width: 28px; height: 28px; border: none; background: #eee; border-radius: 50%; cursor: pointer; font-size: 1.1rem; line-height: 1; color: #666; padding: 0; }
+    .result-modal .result-modal-close:hover { background: #e0e0e0; color: #333; }
+    .result-modal .result-modal-title { font-size: 1rem; color: #1565c0; margin: 0 0 0.5rem 0; padding-right: 2rem; }
+    .result-modal .result-modal-body { font-size: 14px; color: #333; margin-bottom: 1.25rem; }
+    .result-modal .result-modal-footer { text-align: right; }
+    .result-modal .result-modal-footer .btn { padding: 0.5rem 1.25rem; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>📚 自动化写书</h1>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2>选择书籍</h2>
+      <div class="row">
+        <div>
+          <label>当前书籍</label>
+          <select id="bookSelect">
+            <option value="">-- 请选择或新建 --</option>
+          </select>
+        </div>
+        <div>
+          <label>默认模型</label>
+          <select id="modelSelect">
+            <option value="deepseek/deepseek-chat">DeepSeek</option>
+            <option value="moonshot/moonshot-v1-32k">Kimi</option>
+            <option value="moonshot/moonshot-v1-128k">Kimi 128k</option>
+          </select>
+        </div>
+        <div>
+          <label>内容类型</label>
+          <div class="content-type-group" id="contentTypeGroup" role="group" aria-label="内容类型">
+            <button type="button" class="content-type-btn" data-value="academic" id="contentTypeBtnAcademic">学术专著</button>
+            <button type="button" class="content-type-btn" data-value="novel" id="contentTypeBtnNovel">网络小说</button>
+          </div>
+          <input type="hidden" id="contentTypeSelect" value="academic" />
+          <p class="content-type-hint" id="contentTypeHint">学术专著：严谨论证、术语一致、5500–10000 字/章</p>
+          <div id="academicToneRow" class="row" style="display:none; margin-top:0.5rem;">
+            <label style="min-width:6em;">写作风格</label>
+            <div class="content-type-group" id="academicToneGroup" role="group" aria-label="写作风格">
+              <button type="button" class="content-type-btn academic-tone-btn" data-value="strict" id="academicToneBtnStrict">严谨学术</button>
+              <button type="button" class="content-type-btn academic-tone-btn" data-value="bestseller" id="academicToneBtnBestseller">畅销书（有学术味）</button>
+            </div>
+          </div>
+        </div>
+        <div style="align-self:flex-end; display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <a id="btnDownloadWord" href="#" class="btn disabled" style="text-decoration:none; display:inline-block;" title="下载为 Word 文档（交稿排版规范见下）">下载 Word</a>
+          <a id="btnDownloadMd" href="#" class="btn secondary disabled" style="text-decoration:none; display:inline-block;" title="下载为 Markdown">下载 Markdown</a>
+          <button type="button" id="btnDeleteBook" class="secondary" disabled title="删除当前选中的书籍（含大纲、章节等）">删除本书</button>
+        </div>
+        <p class="muted" style="margin:0.5rem 0 0 0; font-size:0.8rem; max-width:720px;">Word 导出排版规范（与 SPEC.md §7 一致，可直接交稿）：正文宋体小四、1.5 倍行距、首行缩进 2 字符、两端对齐；一级「第一章」黑体三号居中；二级「一、」黑体四号左对齐；三级「（一）」楷体小四左对齐；强调仅加粗。</p>
+      </div>
+      <details style="margin-top:0.5rem;">
+        <summary>新建书籍</summary>
+        <label>书名</label>
+        <input type="text" id="newTitle" placeholder="例：《量子纠缠在分布式计算中的应用》或《某某修仙传》" />
+        <label>内容类型</label>
+        <div class="content-type-group" id="newBookContentTypeGroup" role="group" aria-label="新建书籍内容类型">
+          <button type="button" class="content-type-btn" data-value="academic" id="newBookContentTypeBtnAcademic">学术专著</button>
+          <button type="button" class="content-type-btn" data-value="novel" id="newBookContentTypeBtnNovel">网络小说</button>
+        </div>
+        <input type="hidden" id="newBookContentType" value="academic" />
+        <p class="content-type-hint" id="newBookContentTypeHint">学术专著：严谨论证、术语一致、5500–10000 字/章</p>
+        <label id="newConceptLabel">核心构思 / 研究假设</label>
+        <textarea id="newConcept" placeholder="简要说明本书要讲什么、核心观点"></textarea>
+        <button type="button" id="btnNewBook">创建书籍</button>
+      </details>
+    </div>
+
+    <div class="card" id="cardPublisherStyle">
+      <h2>出版目标与风格</h2>
+      <p class="muted">填写目标出版社与风格描述后，生成大纲、前言与章节时会按此风格写作。参考范文可从读秀等渠道复制段落粘贴，系统将模仿其语气与结构。</p>
+      <label>目标出版社</label>
+      <input type="text" id="targetPublisher" placeholder="例：人民文学出版社、商务印书馆、清华大学出版社" />
+      <label>风格描述</label>
+      <textarea id="writingStyle" rows="2" placeholder="例：偏教材、条理清晰、案例丰富；或：学术专著体例、引用规范、避免口语化"></textarea>
+      <label>参考范文（可选，可从读秀等复制段落）</label>
+      <textarea id="styleReferenceText" rows="6" placeholder="粘贴希望模仿的书籍段落（如从读秀阅读页复制），用于统一全书语气与段落结构。最多约 4000 字参与生成。"></textarea>
+      <button type="button" id="btnSavePublisherStyle" disabled>保存</button>
+    </div>
+
+    <div class="card" id="cardPreface">
+      <h2 style="display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">前言 <span id="prefaceStatus" class="module-status" aria-live="polite"></span></h2>
+      <p class="muted">约 3000 字，可在生成大纲后生成前言，用于吸引读者；支持编辑与导出。</p>
+      <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+        <button type="button" id="btnPreface" disabled>生成前言</button>
+        <span id="prefaceEditToolbar" style="display:none;"><button type="button" id="btnPrefaceEdit" class="secondary">编辑</button><button type="button" id="btnPrefaceFormat" class="secondary" title="去除粗体星号、统一换行与空行，与导出格式一致">应用段落格式</button></span>
+      </div>
+      <div id="prefacePreview" class="outline-preview" style="margin-top:0.25rem; display:none; max-height:360px;"></div>
+      <div id="prefaceEditWrap" style="display:none; margin-top:0.25rem;"><textarea id="prefaceEditArea" class="outline-preview" rows="14" style="min-height:200px;"></textarea><div style="margin-top:0.5rem;"><button type="button" id="btnPrefaceSave">保存</button><button type="button" id="btnPrefaceCancel" class="secondary">取消</button></div></div>
+      <div id="prefaceRunning" style="display:none; margin-top:0.5rem;"><span class="muted">⏳ 正在生成…</span> <button type="button" id="btnPrefaceCancelTask" class="secondary">取消生成</button></div>
+    </div>
+
+    <div class="card" id="cardOutline">
+      <h2 style="display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">全书大纲 <span id="outlineStatus" class="module-status" aria-live="polite"></span></h2>
+      <p class="muted" id="outlineModeHint">先选择书籍并选择模型，再点击「生成全书大纲」。生成后可编辑微调或填写修改说明后重新生成；支持生成中随时取消。</p>
+      <p id="contentTypeBadge" style="display:none; margin:0.25rem 0 0 0; font-size:0.85rem; padding:0.25rem 0.5rem; border-radius:4px; background:#e3f2fd; color:#1565c0;"></p>
+      <div style="display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+        <button type="button" id="btnOutline" disabled>生成全书大纲</button>
+        <button type="button" id="btnChaptersFromOutline" disabled class="secondary">从大纲创建章节</button>
+        <span id="outlineEditToolbar" style="display:none;"><button type="button" id="btnOutlineEdit" class="secondary">编辑</button><button type="button" id="btnOutlineFormat" class="secondary" title="去除粗体星号、统一换行与空行，与导出格式一致">应用段落格式</button><button type="button" id="btnOutlineRegen" class="secondary">重新生成</button></span>
+      </div>
+      <div id="outlineRevisionWrap" style="display:none; margin-bottom:0.5rem;">
+        <label>修改意图</label>
+        <select id="outlineRevisionPreset"><option value="">-- 选择常见意图（可选）--</option><option value="在第3章后增加一章「案例分析」">在第3章后增加一章「案例分析」</option><option value="更学术化">更学术化</option><option value="增加案例与数据">增加案例与数据</option><option value="调整章节顺序或合并">调整章节顺序或合并</option><option value="精简或扩充某章">精简或扩充某章</option><option value="其他">其他（在下方填写）</option></select>
+        <input type="text" id="outlineRevisionInput" placeholder="补充具体说明，如：第三章改为综述、第五章增加案例" style="max-width:400px; margin-top:0.25rem;" />
+        <label style="display:flex; align-items:center; gap:0.35rem; margin-top:0.5rem; font-weight:normal;">
+          <input type="checkbox" id="outlinePartialRevision" />
+          <span>仅局部修改（保留其余内容，不改动未提及的章节）</span>
+        </label>
+      </div>
+      <div id="outlinePreview" class="outline-preview" style="margin-top:0.25rem; display:none;"></div>
+      <div id="outlineEditWrap" style="display:none; margin-top:0.25rem;"><textarea id="outlineEditArea" class="outline-preview" rows="14" style="min-height:200px;"></textarea><div style="margin-top:0.5rem;"><button type="button" id="btnOutlineSave">保存</button><button type="button" id="btnOutlineCancel" class="secondary">取消</button></div></div>
+      <div id="outlineRunning" style="display:none; margin-top:0.5rem;"><span class="muted">⏳ 正在生成…</span> <button type="button" id="btnOutlineCancelTask" class="secondary">取消生成</button></div>
+    </div>
+
+    <div class="card" id="cardChapters">
+      <h2>章节</h2>
+      <div class="row">
+        <div>
+          <h3 style="font-size:0.9rem; margin-top:0;">章节列表</h3>
+          <div id="chapterList"></div>
+        </div>
+        <div id="chapterContentCard" style="display:none;">
+          <h3 style="font-size:0.9rem; margin-top:0; display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">章节正文 <span id="chapterStatus" class="module-status" aria-live="polite"></span></h3>
+          <p id="chapterContentTitle" class="muted" style="margin:0.25rem 0 0 0; font-size:0.85rem;"></p>
+          <div id="chapterContentToolbar" style="display:none; margin-bottom:0.25rem;"><button type="button" id="btnChapterEdit" class="secondary">编辑</button><button type="button" id="btnChapterFormat" class="secondary" title="去除粗体星号、统一换行与空行，与导出格式一致">应用段落格式</button></div>
+          <div id="chapterRevisionWrap" style="display:none; margin-bottom:0.25rem;"><label>修改意图</label><select id="chapterRevisionPreset"><option value="">-- 选择常见意图（可选）--</option><option value="更学术化">更学术化</option><option value="增加案例与数据">增加案例与数据</option><option value="扩充篇幅">扩充篇幅</option><option value="精简表述">精简表述</option><option value="其他">其他（在下方填写）</option></select><input type="text" id="chapterRevisionInput" placeholder="补充具体说明，如：第二段更学术化、补充数据来源" style="max-width:400px; margin-top:0.25rem;" /></div>
+          <div id="chapterContentBody" class="chapter-preview muted">请选择左侧章节查看正文。</div>
+          <div id="chapterEditWrap" style="display:none;"><textarea id="chapterEditArea" class="chapter-preview" rows="16" style="min-height:240px;"></textarea><div style="margin-top:0.5rem;"><button type="button" id="btnChapterSave">保存</button><button type="button" id="btnChapterCancel" class="secondary">取消</button></div></div>
+          <div id="chapterRunning" style="display:none; margin-top:0.5rem;"><span class="muted">⏳ 正在生成…</span> <button type="button" id="btnChapterCancelTask" class="secondary">取消生成</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="cardMonitor">
+      <h2>当前任务</h2>
+      <div id="monitorContent" class="muted">无运行中任务。</div>
+    </div>
+  </div>
+
+  <div id="resultModalOverlay" class="result-modal-overlay" aria-hidden="true">
+    <div class="result-modal" role="dialog" aria-labelledby="resultModalTitle" aria-modal="true">
+      <button type="button" class="result-modal-close" id="resultModalClose" aria-label="关闭">&times;</button>
+      <h3 id="resultModalTitle" class="result-modal-title">提示</h3>
+      <div id="resultModalBody" class="result-modal-body"></div>
+      <div class="result-modal-footer">
+        <button type="button" class="btn" id="resultModalConfirm">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = "";
+    let books = [];
+    let currentBook = null;
+    let currentChapterId = null;
+
+    function msg(t, type) {
+      const el = document.getElementById("msg");
+      el.className = type || "success";
+      el.textContent = t;
+      el.style.display = "block";
+    }
+    function clearMsg() {
+      document.getElementById("msg").style.display = "none";
+    }
+
+    var resultModalOnClose = null;
+    function showResultModal(message, onAfterClose) {
+      var overlay = document.getElementById("resultModalOverlay");
+      document.getElementById("resultModalBody").textContent = message || "内容已生成或已更新。";
+      resultModalOnClose = typeof onAfterClose === "function" ? onAfterClose : null;
+      overlay.classList.add("show");
+      overlay.setAttribute("aria-hidden", "false");
+    }
+    function closeResultModal() {
+      var overlay = document.getElementById("resultModalOverlay");
+      overlay.classList.remove("show");
+      overlay.setAttribute("aria-hidden", "true");
+      if (currentBook) {
+        loadBook(currentBook.id).then(function() {
+          render();
+          if (resultModalOnClose) { resultModalOnClose(); resultModalOnClose = null; }
+        });
+      } else if (resultModalOnClose) {
+        resultModalOnClose();
+        resultModalOnClose = null;
+      }
+    }
+    document.getElementById("resultModalConfirm").addEventListener("click", closeResultModal);
+    document.getElementById("resultModalClose").addEventListener("click", closeResultModal);
+    document.getElementById("resultModalOverlay").addEventListener("click", function(e) {
+      if (e.target === document.getElementById("resultModalOverlay")) closeResultModal();
+    });
+
+    /** 从大纲文本中移除末尾的 JSON 数组（含 chapter_index），避免在页面上显示；兼容历史数据 */
+    function stripOutlineJson(text) {
+      if (!text || typeof text !== "string") return text || "";
+      // 移除末尾的整段 JSON 数组：从 [ 后接 { "chapter_index" 到最后一个 ] 为止
+      const trailing = text.replace(/\n\s*\[\s*\{\s*["']chapter_index["'][\s\S]*\]\s*$/g, "\n");
+      return (trailing !== text ? trailing : text.replace(/\[\s*[\s\S]*?\{\s*["']chapter_index["'][\s\S]*?\}\s*\]/g, "")).trim();
+    }
+
+    /** 预览用：去除 *、# 与多余空行，与导出逻辑一致 */
+    function toPlainForPreview(text) {
+      if (!text || typeof text !== "string") return text || "";
+      var s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      s = s.replace(/\*\*/g, "").replace(/\*/g, "");
+      s = s.replace(/\n[\s]*\n[\s]*\n+/g, "\n\n").replace(/\n{2,}/g, "\n\n");
+      s = s.split("\n").map(function(line) { return line.replace(/^#+\s*/, ""); }).join("\n");
+      return s.trim();
+    }
+
+    /** 与后端 _normalize_paragraph_spacing 一致：去 * 号、统一换行、多处空行合并为一段一空行（保留 # 标题符） */
+    function normalizeParagraphFormat(text) {
+      if (!text || typeof text !== "string") return (text || "").trim();
+      var s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      s = s.replace(/\*\*/g, "").replace(/\*/g, "");
+      s = s.replace(/\n[\s]*\n[\s]*\n+/g, "\n\n").replace(/\n{2,}/g, "\n\n");
+      return s.trim();
+    }
+
+    /** 将 Markdown 转为 HTML 并安全插入（仅用于本系统生成的书籍内容） */
+    function renderMarkdown(md) {
+      if (!md) return "";
+      if (typeof marked !== "undefined") return marked.parse(md);
+      return md.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+    }
+
+    /** 200 返回 data；202 返回 { status: 202, data } 供异步任务轮询。 */
+    async function api(path, options = {}) {
+      const url = (API || "").replace(/\/$/, "") + "/" + (path.replace(/^\//, ""));
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch (_) { throw new Error(text || res.statusText); }
+      if (!res.ok && res.status !== 202) throw new Error(data.error || text);
+      return res.status === 202 ? { status: 202, data } : data;
+    }
+
+    function setContentTypeUI(value, isNewBook) {
+      var v = (value || "academic").toLowerCase() === "novel" ? "novel" : "academic";
+      var selectId = isNewBook ? "newBookContentType" : "contentTypeSelect";
+      var hintId = isNewBook ? "newBookContentTypeHint" : "contentTypeHint";
+      var group = document.getElementById(isNewBook ? "newBookContentTypeGroup" : "contentTypeGroup");
+      document.getElementById(selectId).value = v;
+      if (group) {
+        group.querySelectorAll(".content-type-btn").forEach(function(btn) {
+          btn.classList.toggle("active", btn.getAttribute("data-value") === v);
+        });
+      }
+      var hintEl = document.getElementById(hintId);
+      if (hintEl) {
+        hintEl.textContent = v === "novel"
+          ? "网络小说：短章、悬念、节奏、对话、爽点、角色人名一致、2000–4000 字/章"
+          : "学术专著：严谨论证、术语一致、5500–10000 字/章";
+      }
+      var academicToneRow = document.getElementById("academicToneRow");
+      if (academicToneRow && !isNewBook) academicToneRow.style.display = (v === "academic") ? "flex" : "none";
+      if (isNewBook) {
+        var lab = document.getElementById("newConceptLabel");
+        var plc = document.getElementById("newConcept");
+        if (lab && plc) {
+          if (v === "novel") { lab.textContent = "故事梗概 / 核心构思"; plc.placeholder = "主角设定、世界观、主线冲突或开篇梗概"; }
+          else { lab.textContent = "核心构思 / 研究假设"; plc.placeholder = "简要说明本书要讲什么、核心观点"; }
+        }
+      }
+    }
+
+    async function loadBooks() {
+      books = await api("/api/books");
+      const sel = document.getElementById("bookSelect");
+      sel.innerHTML = "<option value=''>-- 请选择或新建 --</option>" + books.map(b => "<option value='" + b.id + "'>" + (b.title || "ID:" + b.id) + "</option>").join("");
+      if (currentBook) {
+        sel.value = currentBook.id;
+        document.getElementById("modelSelect").value = currentBook.default_model || "deepseek/deepseek-chat";
+        setContentTypeUI(currentBook.content_type, false);
+      }
+    }
+
+    async function loadBook(id) {
+      if (!id) { currentBook = null; render(); return; }
+      currentBook = await api("/api/books/" + id);
+      document.getElementById("modelSelect").value = currentBook.default_model || "deepseek/deepseek-chat";
+      setContentTypeUI(currentBook.content_type, false);
+      render();
+    }
+
+    function render() {
+      const hasBook = !!currentBook;
+      document.getElementById("btnOutline").disabled = !hasBook;
+      document.getElementById("btnChaptersFromOutline").disabled = !hasBook || !(currentBook && currentBook.outline);
+      document.getElementById("btnPreface").disabled = !hasBook;
+      document.getElementById("btnDeleteBook").disabled = !hasBook;
+      var badge = document.getElementById("contentTypeBadge");
+      if (hasBook && currentBook) {
+        var ct = (currentBook.content_type || "academic").toString().toLowerCase();
+        badge.style.display = "block";
+        if (ct === "novel") {
+          badge.textContent = "当前生成模式：网络小说（节奏、悬念、2000–4000字/章，角色人名一致）";
+          badge.style.background = "#fff3e0";
+          badge.style.color = "#e65100";
+        } else {
+          var tone = (currentBook.academic_tone || "strict").toLowerCase();
+          if (tone === "bestseller") {
+            badge.textContent = "当前生成模式：学术专著 · 畅销书（有学术味、好读、5500–10000字/章）";
+            badge.style.background = "#e8f5e9";
+            badge.style.color = "#2e7d32";
+          } else {
+            badge.textContent = "当前生成模式：学术专著（严谨论证、5500–10000字/章）";
+            badge.style.background = "#e3f2fd";
+            badge.style.color = "#1565c0";
+          }
+        }
+        setContentTypeUI(ct, false);
+        var atRow = document.getElementById("academicToneRow");
+        var atGroup = document.getElementById("academicToneGroup");
+        if (ct === "academic" && atGroup) {
+          var at = (currentBook.academic_tone || "strict").toLowerCase();
+          atGroup.querySelectorAll(".academic-tone-btn").forEach(function(btn) {
+            btn.classList.toggle("active", (btn.getAttribute("data-value") || "") === at);
+          });
+        }
+      } else {
+        badge.style.display = "none";
+      }
+      const base = (typeof API !== "undefined" && API) ? API : "";
+      const w = document.getElementById("btnDownloadWord");
+      const m = document.getElementById("btnDownloadMd");
+      if (hasBook) {
+        w.href = base + "/api/books/" + currentBook.id + "/export?format=docx";
+        m.href = base + "/api/books/" + currentBook.id + "/export?format=md";
+        w.classList.remove("disabled");
+        m.classList.remove("disabled");
+      } else {
+        w.href = "#";
+        m.href = "#";
+        w.classList.add("disabled");
+        m.classList.add("disabled");
+      }
+
+      var cardPub = document.getElementById("cardPublisherStyle");
+      var btnSavePub = document.getElementById("btnSavePublisherStyle");
+      if (hasBook && currentBook) {
+        cardPub.style.display = "block";
+        document.getElementById("targetPublisher").value = currentBook.target_publisher || "";
+        document.getElementById("writingStyle").value = currentBook.writing_style || "";
+        document.getElementById("styleReferenceText").value = currentBook.style_reference_text || "";
+        btnSavePub.disabled = false;
+      } else {
+        cardPub.style.display = "block";
+        document.getElementById("targetPublisher").value = "";
+        document.getElementById("writingStyle").value = "";
+        document.getElementById("styleReferenceText").value = "";
+        btnSavePub.disabled = true;
+      }
+
+      if (currentBook && (currentBook.preface || "").trim()) {
+        document.getElementById("prefaceEditToolbar").style.display = "inline";
+        const prePre = document.getElementById("prefacePreview");
+        const editWrapPre = document.getElementById("prefaceEditWrap");
+        if (editWrapPre.style.display !== "block") {
+          prePre.style.display = "block";
+          prePre.innerHTML = renderMarkdown(toPlainForPreview((currentBook.preface || "").trim()));
+        }
+      } else {
+        document.getElementById("prefaceEditToolbar").style.display = "none";
+        const prePre = document.getElementById("prefacePreview");
+        prePre.style.display = "block";
+        prePre.innerHTML = "<p class='muted'>暂无前言。点击「生成前言」自动生成约 3000 字（可在大纲生成后操作，效果更佳）。</p>";
+      }
+      if (currentBook && currentBook.outline) {
+        document.getElementById("outlineEditToolbar").style.display = "inline";
+        document.getElementById("outlineRevisionWrap").style.display = "block";
+        const pre = document.getElementById("outlinePreview");
+        const editWrap = document.getElementById("outlineEditWrap");
+        if (editWrap.style.display !== "block") {
+          pre.style.display = "block";
+          const raw = currentBook.outline.content || "（无内容）";
+          pre.innerHTML = renderMarkdown(toPlainForPreview(stripOutlineJson(raw)));
+        }
+      } else {
+        document.getElementById("outlineEditToolbar").style.display = "none";
+        document.getElementById("outlineRevisionWrap").style.display = "none";
+        document.getElementById("outlinePreview").style.display = "none";
+        document.getElementById("outlineEditWrap").style.display = "none";
+      }
+
+      const list = document.getElementById("chapterList");
+      if (!currentBook || !currentBook.chapters || !currentBook.chapters.length) {
+        list.innerHTML = "<p class='muted'>暂无章节。请先生成大纲并点击「从大纲创建章节」。</p>";
+        document.getElementById("chapterContentCard").style.display = "none";
+        return;
+      }
+      list.innerHTML = currentBook.chapters.map(ch => {
+        var label = (ch.title && (ch.title + "").trim()) ? (ch.title + "").trim() : ("第 " + ch.order_index + " 章");
+        return "<div class='chapter-item" + (currentChapterId === ch.id ? " active" : "") + "' data-id='" + ch.id + "'>" +
+          "<span><strong>" + label.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</strong>" + (ch.content ? " <small class='muted'>（已生成正文）</small>" : "") + "</span>" +
+          "<button type='button' class='btn chapter-gen' data-id='" + ch.id + "'>扩写本章</button>" +
+          "</div>";
+      }).join("");
+      list.querySelectorAll(".chapter-gen").forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          generateChapter(parseInt(btn.dataset.id, 10));
+        };
+      });
+      list.querySelectorAll(".chapter-item").forEach(item => {
+        item.onclick = () => {
+          const id = parseInt(item.dataset.id, 10);
+          selectChapter(id);
+        };
+      });
+      // 如果当前选中的章节不在列表中或还未选中过，且存在章节，则默认选中第一章
+      if (!currentChapterId && currentBook.chapters.length > 0) {
+        selectChapter(currentBook.chapters[0].id);
+      }
+    }
+
+    function selectChapter(chapterId) {
+      if (!currentBook || !currentBook.chapters) return;
+      currentChapterId = chapterId;
+      const ch = currentBook.chapters.find(c => c.id === chapterId);
+      const titleEl = document.getElementById("chapterContentTitle");
+      const bodyEl = document.getElementById("chapterContentBody");
+      const cardEl = document.getElementById("chapterContentCard");
+      if (!ch) {
+        cardEl.style.display = "none";
+        return;
+      }
+      cardEl.style.display = "block";
+      document.getElementById("chapterEditWrap").style.display = "none";
+      document.getElementById("chapterContentBody").style.display = "block";
+      document.getElementById("chapterRevisionWrap").style.display = "block";
+      if (ch.content && ch.content.trim()) {
+        titleEl.textContent = (ch.title && (ch.title + "").trim()) ? (ch.title + "").trim() : ("第 " + ch.order_index + " 章");
+        bodyEl.classList.remove("muted");
+        bodyEl.innerHTML = renderMarkdown(toPlainForPreview(ch.content));
+        document.getElementById("chapterContentToolbar").style.display = "block";
+      } else {
+        titleEl.textContent = "章节正文";
+        bodyEl.classList.add("muted");
+        bodyEl.textContent = "本章尚未生成正文，请先点击左侧「扩写本章」。";
+        document.getElementById("chapterContentToolbar").style.display = "none";
+      }
+      const list = document.getElementById("chapterList");
+      list.querySelectorAll(".chapter-item").forEach(item => {
+        item.classList.toggle("active", parseInt(item.dataset.id, 10) === chapterId);
+      });
+    }
+
+    document.getElementById("bookSelect").addEventListener("change", e => {
+      const id = e.target.value ? parseInt(e.target.value, 10) : null;
+      loadBook(id);
+    });
+
+    document.getElementById("modelSelect").addEventListener("change", async e => {
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ default_model: e.target.value }) });
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    document.getElementById("contentTypeBtnAcademic").addEventListener("click", async function() {
+      setContentTypeUI("academic", false);
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ content_type: "academic" }) });
+        currentBook.content_type = "academic";
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+    document.getElementById("contentTypeBtnNovel").addEventListener("click", async function() {
+      setContentTypeUI("novel", false);
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ content_type: "novel" }) });
+        currentBook.content_type = "novel";
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    document.getElementById("academicToneBtnStrict").addEventListener("click", async function() {
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ academic_tone: "strict" }) });
+        currentBook.academic_tone = "strict";
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+    document.getElementById("academicToneBtnBestseller").addEventListener("click", async function() {
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ academic_tone: "bestseller" }) });
+        currentBook.academic_tone = "bestseller";
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    document.getElementById("newBookContentTypeBtnAcademic").addEventListener("click", function() { setContentTypeUI("academic", true); });
+    document.getElementById("newBookContentTypeBtnNovel").addEventListener("click", function() { setContentTypeUI("novel", true); });
+
+    document.getElementById("btnDeleteBook").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const title = currentBook.title || "ID:" + currentBook.id;
+      if (!confirm("确定要删除《" + title + "》吗？\n删除后该书的大纲、章节、术语等将无法恢复。")) return;
+      clearMsg();
+      try {
+        await api("/api/books/" + currentBook.id, { method: "DELETE" });
+        msg("已删除：「" + title + "」");
+        currentBook = null;
+        currentChapterId = null;
+        await loadBooks();
+        document.getElementById("bookSelect").value = "";
+        render();
+        document.getElementById("chapterContentCard").style.display = "none";
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    document.getElementById("btnNewBook").addEventListener("click", async () => {
+      const title = document.getElementById("newTitle").value.trim();
+      if (!title) { msg("请输入书名", "error"); return; }
+      clearMsg();
+      try {
+        const model = document.getElementById("modelSelect").value;
+        const contentType = document.getElementById("newBookContentType").value || "academic";
+        const b = await api("/api/books", { method: "POST", body: JSON.stringify({ title, core_concept: document.getElementById("newConcept").value.trim(), default_model: model, content_type: contentType }) });
+        msg("已创建：「" + b.title + "」" + (b.content_type === "novel" ? "（网络小说）" : ""));
+        await loadBooks();
+        document.getElementById("bookSelect").value = b.id;
+        await loadBook(b.id);
+        if (b.content_type) currentBook.content_type = b.content_type;
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    let outlinePollTimer = null;
+    let chapterPollTimer = null;
+    let prefacePollTimer = null;
+    let lastRunningTaskType = null;
+    let moduleDoneTimer = null;
+
+    document.getElementById("btnPreface").addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!currentBook) return;
+      clearMsg();
+      const btn = document.getElementById("btnPreface");
+      btn.disabled = true;
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const url = "/api/books/" + currentBook.id + "/generate-preface";
+        const r = await fetch((API || "").replace(/\/$/, "") + "/" + url.replace(/^\//, ""), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content_type: contentType })
+        });
+        const text = await r.text();
+        let data;
+        try { data = JSON.parse(text); } catch (_) { data = {}; }
+        if (!r.ok && r.status !== 202) {
+          if (r.status === 405) throw new Error(data.error || "生成前言接口需要 POST 请求，请刷新页面后重新点击「生成前言」");
+          throw new Error(data.error || text || "请求失败");
+        }
+        const res = r.status === 202 ? { status: 202, data } : data;
+        if (res.status === 202 && res.data && res.data.task_id) {
+          document.getElementById("prefaceRunning").style.display = "block";
+          startPrefacePoll(res.data.task_id);
+        } else {
+          await loadBook(currentBook.id);
+          render();
+        }
+      } catch (err) { msg(err.message, "error"); }
+      btn.disabled = false;
+    });
+    function startPrefacePoll(taskId) {
+      if (prefacePollTimer) clearInterval(prefacePollTimer);
+      prefacePollTimer = setInterval(async () => {
+        if (!currentBook) return;
+        try {
+          const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+          if (r.last_error) {
+            stopPrefacePoll();
+            document.getElementById("prefaceRunning").style.display = "none";
+            msg("前言生成失败：" + r.last_error, "error");
+            document.getElementById("btnPreface").disabled = false;
+            return;
+          }
+          if (!r.running) {
+            stopPrefacePoll();
+            document.getElementById("prefaceRunning").style.display = "none";
+            document.getElementById("btnPreface").disabled = false;
+            showResultModal("前言已生成。点击「确认」或关闭弹窗后将自动刷新并显示最新内容。", function() {});
+          }
+        } catch (_) {}
+      }, 1500);
+    }
+    function stopPrefacePoll() {
+      if (prefacePollTimer) { clearInterval(prefacePollTimer); prefacePollTimer = null; }
+    }
+    document.getElementById("btnPrefaceCancelTask").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+      if (r.running && r.running.id) {
+        try {
+          await api("/api/books/" + currentBook.id + "/tasks/" + r.running.id + "/cancel", { method: "POST" });
+          msg("已发送取消请求");
+        } catch (e) { msg(e.message, "error"); }
+      }
+    });
+    document.getElementById("btnPrefaceEdit").addEventListener("click", () => {
+      const raw = (currentBook && currentBook.preface) ? currentBook.preface : "";
+      document.getElementById("prefaceEditArea").value = raw;
+      document.getElementById("prefacePreview").style.display = "none";
+      document.getElementById("prefaceEditWrap").style.display = "block";
+    });
+    document.getElementById("btnPrefaceFormat").addEventListener("click", () => {
+      var wrap = document.getElementById("prefaceEditWrap");
+      var raw = wrap.style.display === "block" ? document.getElementById("prefaceEditArea").value : ((currentBook && currentBook.preface) ? currentBook.preface : "");
+      document.getElementById("prefaceEditArea").value = normalizeParagraphFormat(raw);
+      document.getElementById("prefacePreview").style.display = "none";
+      wrap.style.display = "block";
+      msg("已应用段落格式，可继续编辑后保存。");
+    });
+    document.getElementById("btnPrefaceSave").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const content = document.getElementById("prefaceEditArea").value;
+      try {
+        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ preface: content }) });
+        msg("前言已保存");
+        document.getElementById("prefaceEditWrap").style.display = "none";
+        document.getElementById("prefacePreview").style.display = "block";
+        await loadBook(currentBook.id);
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+    document.getElementById("btnPrefaceCancel").addEventListener("click", () => {
+      document.getElementById("prefaceEditWrap").style.display = "none";
+      document.getElementById("prefacePreview").style.display = "block";
+    });
+
+    document.getElementById("btnSavePublisherStyle").addEventListener("click", async () => {
+      if (!currentBook) return;
+      try {
+        await api("/api/books/" + currentBook.id, {
+          method: "PUT",
+          body: JSON.stringify({
+            target_publisher: document.getElementById("targetPublisher").value.trim() || null,
+            writing_style: document.getElementById("writingStyle").value.trim() || null,
+            style_reference_text: document.getElementById("styleReferenceText").value.trim() || null
+          })
+        });
+        msg("出版目标与风格已保存", "success");
+        await loadBook(currentBook.id);
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    document.getElementById("btnOutline").addEventListener("click", async () => {
+      if (!currentBook) return;
+      clearMsg();
+      const btn = document.getElementById("btnOutline");
+      btn.disabled = true;
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const r = await api("/api/books/" + currentBook.id + "/generate-outline", { method: "POST", body: JSON.stringify({ content_type: contentType }) });
+        if (r.status === 202) {
+          document.getElementById("outlineRunning").style.display = "block";
+          startOutlinePoll(r.data.task_id);
+        } else {
+          msg("大纲已生成");
+          await loadBook(currentBook.id);
+        }
+      } catch (err) { msg(err.message, "error"); }
+      btn.disabled = false;
+    });
+
+    function startOutlinePoll(taskId) {
+      if (outlinePollTimer) clearInterval(outlinePollTimer);
+      outlinePollTimer = setInterval(async () => {
+        if (!currentBook) return;
+        try {
+          const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+          const running = r.running;
+          const err = r.last_error;
+          if (err) {
+            stopOutlinePoll();
+            document.getElementById("outlineRunning").style.display = "none";
+            msg("生成失败：" + err, "error");
+            await loadBook(currentBook.id);
+            document.getElementById("btnOutline").disabled = false;
+            return;
+          }
+          if (!running) {
+            stopOutlinePoll();
+            document.getElementById("outlineRunning").style.display = "none";
+            document.getElementById("btnOutline").disabled = false;
+            showResultModal("全书大纲已生成。点击「确认」或关闭弹窗后将自动刷新并显示最新内容。", function() {});
+          }
+        } catch (_) {}
+      }, 1500);
+    }
+    function stopOutlinePoll() {
+      if (outlinePollTimer) { clearInterval(outlinePollTimer); outlinePollTimer = null; }
+    }
+
+    document.getElementById("btnOutlineCancelTask").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+      if (r.running && r.running.id) {
+        try {
+          await api("/api/books/" + currentBook.id + "/tasks/" + r.running.id + "/cancel", { method: "POST" });
+          msg("已发送取消请求");
+        } catch (e) { msg(e.message, "error"); }
+      }
+    });
+
+    document.getElementById("btnOutlineEdit").addEventListener("click", () => {
+      const raw = (currentBook && currentBook.outline && currentBook.outline.content) ? currentBook.outline.content : "";
+      document.getElementById("outlineEditArea").value = raw;
+      document.getElementById("outlinePreview").style.display = "none";
+      document.getElementById("outlineEditWrap").style.display = "block";
+    });
+    document.getElementById("btnOutlineFormat").addEventListener("click", () => {
+      var wrap = document.getElementById("outlineEditWrap");
+      var raw = wrap.style.display === "block" ? document.getElementById("outlineEditArea").value : ((currentBook && currentBook.outline && currentBook.outline.content) ? currentBook.outline.content : "");
+      document.getElementById("outlineEditArea").value = normalizeParagraphFormat(raw);
+      document.getElementById("outlinePreview").style.display = "none";
+      wrap.style.display = "block";
+      msg("已应用段落格式，可继续编辑后保存。");
+    });
+    document.getElementById("btnOutlineSave").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const content = document.getElementById("outlineEditArea").value;
+      try {
+        await api("/api/books/" + currentBook.id + "/outline", { method: "PUT", body: JSON.stringify({ content }) });
+        msg("大纲已保存");
+        document.getElementById("outlineEditWrap").style.display = "none";
+        document.getElementById("outlinePreview").style.display = "block";
+        await loadBook(currentBook.id);
+        render();
+      } catch (err) { msg(err.message, "error"); }
+    });
+    document.getElementById("btnOutlineCancel").addEventListener("click", () => {
+      document.getElementById("outlineEditWrap").style.display = "none";
+      document.getElementById("outlinePreview").style.display = "block";
+    });
+
+    function getRevisionInstruction(presetId, inputId) {
+      var preset = (document.getElementById(presetId) || {}).value || "";
+      var custom = (document.getElementById(inputId) || {}).value || "";
+      if (preset && custom) return preset + "；" + custom;
+      return preset || custom || "";
+    }
+    document.getElementById("btnOutlineRegen").addEventListener("click", async () => {
+      if (!currentBook) return;
+      clearMsg();
+      document.getElementById("outlineRevisionWrap").style.display = "block";
+      const revision = getRevisionInstruction("outlineRevisionPreset", "outlineRevisionInput");
+      const partialOnly = document.getElementById("outlinePartialRevision") && document.getElementById("outlinePartialRevision").checked;
+      if (partialOnly && !revision) {
+        msg("仅局部修改时请先填写修改意图", "error");
+        return;
+      }
+      const btn = document.getElementById("btnOutline");
+      btn.disabled = true;
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const body = { content_type: contentType, revision_instruction: revision || undefined };
+        if (partialOnly) body.partial_revision = true;
+        const r = await api("/api/books/" + currentBook.id + "/generate-outline", { method: "POST", body: JSON.stringify(body) });
+        if (r.status === 202) {
+          document.getElementById("outlineRunning").style.display = "block";
+          startOutlinePoll(r.data.task_id);
+        } else {
+          await loadBook(currentBook.id);
+          render();
+        }
+      } catch (err) { msg(err.message, "error"); }
+      btn.disabled = false;
+    });
+
+    document.getElementById("btnChaptersFromOutline").addEventListener("click", async () => {
+      if (!currentBook) return;
+      clearMsg();
+      try {
+        const r = await api("/api/books/" + currentBook.id + "/chapters/from-outline", { method: "POST" });
+        msg("已创建 " + (r.chapters && r.chapters.length) + " 个章节");
+        await loadBook(currentBook.id);
+      } catch (err) { msg(err.message, "error"); }
+    });
+
+    async function generateChapter(chapterId) {
+      if (!currentBook) return;
+      clearMsg();
+      const revision = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
+      const list = document.getElementById("chapterList");
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = true; });
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const r = await api("/api/books/" + currentBook.id + "/chapters/" + chapterId + "/generate", { method: "POST", body: JSON.stringify({ content_type: contentType, revision_instruction: revision || undefined }) });
+        if (r.status === 202) {
+          document.getElementById("chapterRunning").style.display = "block";
+          startChapterPoll(chapterId, r.data.task_id);
+        } else {
+          msg("本章已生成");
+          await loadBook(currentBook.id);
+          selectChapter(chapterId);
+        }
+      } catch (err) { msg(err.message, "error"); }
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = false; });
+    }
+
+    function startChapterPoll(chapterId, taskId) {
+      if (chapterPollTimer) clearInterval(chapterPollTimer);
+      chapterPollTimer = setInterval(async () => {
+        if (!currentBook) return;
+        try {
+          const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+          const running = r.running;
+          const err = r.last_error;
+          if (err) {
+            stopChapterPoll();
+            document.getElementById("chapterRunning").style.display = "none";
+            msg("生成失败：" + err, "error");
+            await loadBook(currentBook.id);
+            selectChapter(chapterId);
+            document.getElementById("chapterList").querySelectorAll(".chapter-gen").forEach(b => { b.disabled = false; });
+            return;
+          }
+          if (!running) {
+            stopChapterPoll();
+            document.getElementById("chapterRunning").style.display = "none";
+            document.getElementById("chapterList").querySelectorAll(".chapter-gen").forEach(b => { b.disabled = false; });
+            var cid = chapterId;
+            showResultModal("章节已生成。点击「确认」或关闭弹窗后将自动刷新并显示最新正文。", function() {
+              selectChapter(cid);
+              document.getElementById("chapterContentCard").style.display = "block";
+            });
+          }
+        } catch (_) {}
+      }, 1500);
+    }
+    function stopChapterPoll() {
+      if (chapterPollTimer) { clearInterval(chapterPollTimer); chapterPollTimer = null; }
+    }
+
+    document.getElementById("btnChapterCancelTask").addEventListener("click", async () => {
+      if (!currentBook) return;
+      const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+      if (r.running && r.running.id) {
+        try {
+          await api("/api/books/" + currentBook.id + "/tasks/" + r.running.id + "/cancel", { method: "POST" });
+          msg("已发送取消请求");
+        } catch (e) { msg(e.message, "error"); }
+      }
+    });
+
+    document.getElementById("btnChapterEdit").addEventListener("click", () => {
+      const ch = currentBook && currentBook.chapters && currentBook.chapters.find(c => c.id === currentChapterId);
+      const raw = (ch && ch.content) ? ch.content : "";
+      document.getElementById("chapterEditArea").value = raw;
+      document.getElementById("chapterContentBody").style.display = "none";
+      document.getElementById("chapterEditWrap").style.display = "block";
+    });
+    document.getElementById("btnChapterFormat").addEventListener("click", () => {
+      var wrap = document.getElementById("chapterEditWrap");
+      var raw;
+      if (wrap.style.display === "block") {
+        raw = document.getElementById("chapterEditArea").value;
+      } else {
+        var ch = currentBook && currentBook.chapters && currentBook.chapters.find(c => c.id === currentChapterId);
+        raw = (ch && ch.content) ? ch.content : "";
+      }
+      document.getElementById("chapterEditArea").value = normalizeParagraphFormat(raw);
+      document.getElementById("chapterContentBody").style.display = "none";
+      wrap.style.display = "block";
+      msg("已应用段落格式，可继续编辑后保存。");
+    });
+    document.getElementById("btnChapterSave").addEventListener("click", async () => {
+      if (!currentBook || !currentChapterId) return;
+      const content = document.getElementById("chapterEditArea").value;
+      try {
+        await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId, { method: "PUT", body: JSON.stringify({ content }) });
+        msg("章节已保存");
+        document.getElementById("chapterEditWrap").style.display = "none";
+        document.getElementById("chapterContentBody").style.display = "block";
+        await loadBook(currentBook.id);
+        selectChapter(currentChapterId);
+      } catch (err) { msg(err.message, "error"); }
+    });
+    document.getElementById("btnChapterCancel").addEventListener("click", () => {
+      document.getElementById("chapterEditWrap").style.display = "none";
+      document.getElementById("chapterContentBody").style.display = "block";
+    });
+
+    async function pollMonitor() {
+      if (!currentBook) return;
+      try {
+        const r = await api("/api/books/" + currentBook.id + "/tasks/current");
+        const outlineStatusEl = document.getElementById("outlineStatus");
+        const outlineRunningEl = document.getElementById("outlineRunning");
+        const chapterStatusEl = document.getElementById("chapterStatus");
+        const chapterRunningEl = document.getElementById("chapterRunning");
+        const prefaceStatusEl = document.getElementById("prefaceStatus");
+        const prefaceRunningEl = document.getElementById("prefaceRunning");
+        const el = document.getElementById("monitorContent");
+        if (r.last_error) {
+          outlineStatusEl.textContent = "";
+          outlineRunningEl.style.display = "none";
+          chapterStatusEl.textContent = "";
+          chapterRunningEl.style.display = "none";
+          prefaceStatusEl.textContent = "";
+          prefaceRunningEl.style.display = "none";
+          var errEsc = (r.last_error || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+          el.innerHTML = "<span class='error'>" + errEsc + "</span>";
+          return;
+        }
+        if (r.running) {
+          lastRunningTaskType = (r.running.task_type || "").toLowerCase();
+          var statusText = (r.running.progress_message || "运行中…").trim() || "运行中…";
+          if (lastRunningTaskType === "outline_l1") {
+            outlineStatusEl.textContent = "⏳ " + statusText;
+            outlineStatusEl.className = "module-status running";
+            outlineRunningEl.style.display = "block";
+            outlineRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
+            chapterStatusEl.textContent = "";
+            chapterRunningEl.style.display = "none";
+            prefaceStatusEl.textContent = "";
+            prefaceRunningEl.style.display = "none";
+          } else if (lastRunningTaskType === "chapter" || lastRunningTaskType === "rewrite") {
+            chapterStatusEl.textContent = "⏳ " + statusText;
+            chapterStatusEl.className = "module-status running";
+            chapterRunningEl.style.display = "block";
+            chapterRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
+            outlineStatusEl.textContent = "";
+            outlineRunningEl.style.display = "none";
+            prefaceStatusEl.textContent = "";
+            prefaceRunningEl.style.display = "none";
+          } else if (lastRunningTaskType === "preface") {
+            prefaceStatusEl.textContent = "⏳ " + statusText;
+            prefaceStatusEl.className = "module-status running";
+            prefaceRunningEl.style.display = "block";
+            if (prefaceRunningEl.querySelector("span.muted")) prefaceRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
+            outlineStatusEl.textContent = "";
+            outlineRunningEl.style.display = "none";
+            chapterStatusEl.textContent = "";
+            chapterRunningEl.style.display = "none";
+          } else {
+            outlineStatusEl.textContent = "⏳ " + statusText;
+            outlineStatusEl.className = "module-status running";
+            outlineRunningEl.style.display = "block";
+            chapterStatusEl.textContent = "";
+            chapterRunningEl.style.display = "none";
+            prefaceStatusEl.textContent = "";
+            prefaceRunningEl.style.display = "none";
+          }
+          el.innerHTML = "<strong>" + statusText + "</strong><pre class='outline-preview' style='max-height:200px'>" + (r.running.current_output || "") + "</pre>";
+        } else {
+          outlineStatusEl.textContent = "";
+          outlineStatusEl.className = "module-status";
+          chapterStatusEl.textContent = "";
+          chapterStatusEl.className = "module-status";
+          if (lastRunningTaskType === "outline_l1") {
+            outlineStatusEl.textContent = "✓ 已生成";
+            outlineStatusEl.className = "module-status done";
+            if (moduleDoneTimer) clearTimeout(moduleDoneTimer);
+            moduleDoneTimer = setTimeout(function() { outlineStatusEl.textContent = ""; outlineStatusEl.className = "module-status"; }, 3000);
+            loadBook(currentBook.id);
+          } else if (lastRunningTaskType === "chapter" || lastRunningTaskType === "rewrite") {
+            chapterStatusEl.textContent = "✓ 已生成";
+            chapterStatusEl.className = "module-status done";
+            if (moduleDoneTimer) clearTimeout(moduleDoneTimer);
+            moduleDoneTimer = setTimeout(function() { chapterStatusEl.textContent = ""; chapterStatusEl.className = "module-status"; }, 3000);
+            loadBook(currentBook.id).then(function() {
+              if (currentChapterId) selectChapter(currentChapterId);
+              msg("章节正文已更新", "success");
+            });
+          } else if (lastRunningTaskType === "preface") {
+            prefaceStatusEl.textContent = "✓ 已生成";
+            prefaceStatusEl.className = "module-status done";
+            if (moduleDoneTimer) clearTimeout(moduleDoneTimer);
+            moduleDoneTimer = setTimeout(function() { prefaceStatusEl.textContent = ""; prefaceStatusEl.className = "module-status"; }, 3000);
+            loadBook(currentBook.id).then(function() { render(); msg("前言已更新", "success"); });
+          }
+          lastRunningTaskType = null;
+          outlineRunningEl.style.display = "none";
+          chapterRunningEl.style.display = "none";
+          prefaceRunningEl.style.display = "none";
+          el.textContent = "无运行中任务。";
+        }
+      } catch (_) {}
+    }
+
+    (async () => {
+      await loadBooks();
+      setContentTypeUI(currentBook ? currentBook.content_type : "academic", false);
+      setContentTypeUI("academic", true);
+      setInterval(pollMonitor, 3000);
+    })();
+  </script>
+</body>
+</html>

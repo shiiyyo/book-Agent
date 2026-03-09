@@ -1,0 +1,33 @@
+# 数据与运行时
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+*.sqlite3
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.env
+.venv/
+venv/
+env/
+
+# IDE / 系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
