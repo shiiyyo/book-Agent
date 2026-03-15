@@ -21,6 +21,7 @@ load_dotenv(ROOT / ".env")
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from sqlalchemy import delete, select, text
 
+from app.config import get_default_model
 from core.engine import run_task, _build_outline_content, _parse_outline_to_intro_and_fragments
 from database import (
     Argument,
@@ -82,6 +83,12 @@ def index():
 
 # ---------- API ----------
 
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    """返回当前配置（如调用模型来自 .env），供前端展示。"""
+    return jsonify({"default_model": get_default_model()})
+
+
 @app.route("/api/books", methods=["GET"])
 def list_books():
     session = get_session()
@@ -103,7 +110,8 @@ def create_book():
         content_type = "academic"
     session = get_session()
     try:
-        book = Book(title=title, core_concept=(data.get("core_concept") or "").strip() or None, default_model=(data.get("default_model") or "deepseek/deepseek-chat").strip(), content_type=content_type, book_type=content_type)
+        default_model = (data.get("default_model") or get_default_model() or "").strip() or None
+        book = Book(title=title, core_concept=(data.get("core_concept") or "").strip() or None, default_model=default_model, content_type=content_type, book_type=content_type)
         session.add(book)
         session.commit()
         session.refresh(book)

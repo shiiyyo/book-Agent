@@ -110,7 +110,12 @@ cd Academic-Director
 pip install -r requirements.txt
 ```
 
-在项目根目录配置 `.env`（如 `DEEPSEEK_API_KEY=你的key`），然后：
+在项目根目录配置 `.env`（可复制 `.env.example` 为 `.env` 后修改）：
+
+- **必填**：`OPENAI_MODEL=...` 或 `DEFAULT_MODEL=...`（例如 `OPENAI_MODEL=openai/gpt-4o-mini` 或 `OPENAI_MODEL=claude-3-7-sonnet-20250219`），否则会报「未配置调用模型」。
+- 按所选模型配置对应 API Key（如 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 等）。
+
+然后：
 
 ```bash
 python api_server.py
@@ -120,13 +125,17 @@ python api_server.py
 
 ### 4.2 方式二：Streamlit + Worker（双进程）
 
-在项目根目录放置 `.env`，配置 API（例如 DeepSeek、Moonshot）：
+在项目根目录放置 `.env`（可参考 `.env.example`），**必须设置调用模型**：
 
 ```env
-DEEPSEEK_API_KEY=sk-xxx
-DEEPSEEK_API_BASE=https://api.deepseek.com
-MOONSHOT_API_KEY=sk-xxx
-MOONSHOT_API_BASE=https://api.moonshot.cn/v1
+# 必填其一
+OPENAI_MODEL=openai/gpt-4o-mini
+# 或 DEFAULT_MODEL=claude-3-5-sonnet
+
+# 按模型配置对应 Key
+OPENAI_API_KEY=sk-xxx
+# 可选代理
+# OPENAI_API_BASE=https://your-gateway.com/v1
 ```
 
 两个终端分别启动：

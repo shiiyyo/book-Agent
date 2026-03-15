@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.config import DEFAULT_MODELS
+from app.config import DEFAULT_MODELS, get_default_model
 
 
 @dataclass
@@ -40,7 +40,7 @@ def extract_definitions_and_terms(
     if not text or not text.strip():
         return []
 
-    model = model or (DEFAULT_MODELS[0] if DEFAULT_MODELS else "gpt-4o-mini")
+    model = model or get_default_model() or (DEFAULT_MODELS[0] if DEFAULT_MODELS else "gpt-4o-mini")
     prompt = _build_prompt(text)
     raw = _call_llm(prompt, model=model, api_key=api_key)
     return _parse_llm_response(raw)
@@ -87,7 +87,7 @@ def extract_fiction_entities(
     if not text or not text.strip():
         return []
 
-    model = model or (DEFAULT_MODELS[0] if DEFAULT_MODELS else "gpt-4o-mini")
+    model = model or get_default_model() or (DEFAULT_MODELS[0] if DEFAULT_MODELS else "gpt-4o-mini")
     prompt = f"""你是一位网文策划助手。请从下面这段小说章节正文中识别并列出：
 1. **新出现的伏笔**：本章新埋下的悬念、未解之谜、后续可能回收的线索（用简短名称+一句话描述）。
 2. **人物状态更新**：主要角色在本章结束时的状态、立场、情绪或关系变化（人名或「XX的状态」+ 简要描述）。

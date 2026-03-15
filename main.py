@@ -529,7 +529,7 @@ def page_outline(book: Book):
             return
         outline = b.outline
         if not outline:
-            st.info("尚未生成大纲。请先填写书名与核心构思，再点击下方按钮。Worker 将使用当前选中的模型（如 DeepSeek/Moonshot）生成。")
+            st.info("尚未生成大纲。请先填写书名与核心构思，再点击下方按钮。Worker 将使用当前选中的模型生成。")
             _ct = (getattr(b, "content_type", None) or "").strip().lower() or "academic"
             if _ct not in ("academic", "novel"):
                 _ct = "academic"

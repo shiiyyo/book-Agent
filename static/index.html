@@ -78,12 +78,9 @@
           </select>
         </div>
         <div>
-          <label>默认模型</label>
-          <select id="modelSelect">
-            <option value="deepseek/deepseek-chat">DeepSeek</option>
-            <option value="moonshot/moonshot-v1-32k">Kimi</option>
-            <option value="moonshot/moonshot-v1-128k">Kimi 128k</option>
-          </select>
+          <label>当前调用模型</label>
+          <p id="currentModelDisplay" class="muted" style="margin:0; padding:0.5rem 0;">加载中…</p>
+          <p class="muted" style="margin:0; font-size:0.8rem;">在 .env 中设置 <code>OPENAI_MODEL</code> 或 <code>DEFAULT_MODEL</code>，填什么就调什么。</p>
         </div>
         <div>
           <label>内容类型</label>
@@ -332,7 +329,6 @@
       sel.innerHTML = "<option value=''>-- 请选择或新建 --</option>" + books.map(b => "<option value='" + b.id + "'>" + (b.title || "ID:" + b.id) + "</option>").join("");
       if (currentBook) {
         sel.value = currentBook.id;
-        document.getElementById("modelSelect").value = currentBook.default_model || "deepseek/deepseek-chat";
         setContentTypeUI(currentBook.content_type, false);
       }
     }
@@ -340,7 +336,6 @@
     async function loadBook(id) {
       if (!id) { currentBook = null; render(); return; }
       currentBook = await api("/api/books/" + id);
-      document.getElementById("modelSelect").value = currentBook.default_model || "deepseek/deepseek-chat";
       setContentTypeUI(currentBook.content_type, false);
       render();
     }
@@ -513,13 +508,6 @@
       loadBook(id);
     });
 
-    document.getElementById("modelSelect").addEventListener("change", async e => {
-      if (!currentBook) return;
-      try {
-        await api("/api/books/" + currentBook.id, { method: "PUT", body: JSON.stringify({ default_model: e.target.value }) });
-      } catch (err) { msg(err.message, "error"); }
-    });
-
     document.getElementById("contentTypeBtnAcademic").addEventListener("click", async function() {
       setContentTypeUI("academic", false);
       if (!currentBook) return;
@@ -581,9 +569,8 @@
       if (!title) { msg("请输入书名", "error"); return; }
       clearMsg();
       try {
-        const model = document.getElementById("modelSelect").value;
         const contentType = document.getElementById("newBookContentType").value || "academic";
-        const b = await api("/api/books", { method: "POST", body: JSON.stringify({ title, core_concept: document.getElementById("newConcept").value.trim(), default_model: model, content_type: contentType }) });
+        const b = await api("/api/books", { method: "POST", body: JSON.stringify({ title, core_concept: document.getElementById("newConcept").value.trim(), content_type: contentType }) });
         msg("已创建：「" + b.title + "」" + (b.content_type === "novel" ? "（网络小说）" : ""));
         await loadBooks();
         document.getElementById("bookSelect").value = b.id;
@@ -1049,7 +1036,19 @@
       } catch (_) {}
     }
 
+    async function loadConfig() {
+      try {
+        const c = await api("/api/config");
+        const el = document.getElementById("currentModelDisplay");
+        if (el) el.textContent = (c.default_model && c.default_model.trim()) ? c.default_model : "（未配置。请在 .env 中设置 OPENAI_MODEL 或 DEFAULT_MODEL）";
+      } catch (_) {
+        const el = document.getElementById("currentModelDisplay");
+        if (el) el.textContent = "（无法读取配置）";
+      }
+    }
+
     (async () => {
+      await loadConfig();
       await loadBooks();
       setContentTypeUI(currentBook ? currentBook.content_type : "academic", false);
       setContentTypeUI("academic", true);

@@ -57,7 +57,7 @@ ACADEMIC_SYSTEM_PROMPT = """
 # 输出规范
 - 标准 Markdown；数学用 LaTeX（如 $E=mc^2$）；重点术语可加粗；不使用复杂格式或特殊字体颜色。
 - **标题层级**：一级用「第一章」「第二章」；二级用「一、」「二、」；三级用「（一）」「（二）」；便于导出 Word 时统一排版。
-- **字数（必须满足）**：本章 **6000–12000 字**（中文字符），按细纲充分展开至完整收束，不足则补充论证与案例；不要在半途结束，务必写满整章。
+- **字数（必须满足）**：本章 **8000–12000 字**（中文字符），按细纲充分展开至完整收束，不足则补充论证与案例；不要在半途结束，务必写满整章。
 """
 
 # ---------- 畅销书但有学术味：可读性强、有书感、仍讲清道理 ----------
@@ -82,7 +82,7 @@ BESTSELLER_ACADEMIC_SYSTEM_PROMPT = """
 # 输出规范
 - 标准 Markdown；术语可加粗；不使用复杂格式或特殊字体颜色。
 - **标题层级**：一级「第一章」、二级「一、」、三级「（一）」。
-- **字数（必须满足）**：本章 **6000–12000 字**（中文字符），写满整章勿半途结束。
+- **字数（必须满足）**：本章 **8000–12000 字**（中文字符），写满整章勿半途结束。
 """
 
 # ---------- 网络小说「灵魂」：按 book_type=novel 切换使用 ----------
@@ -111,7 +111,7 @@ LLM_RETRY_BASE_DELAY = 2.0
 # 单次 LLM 调用超时（秒），超时后抛出异常便于前端显示错误
 LLM_REQUEST_TIMEOUT = 300
 # 单次生成上限：8192 可减少长章被截断；若模型报 Invalid max_tokens 可改为 4096
-LLM_MAX_TOKENS_CAP = 8192
+LLM_MAX_TOKENS_CAP = 12000
 # 单次 prompt 文本长度上限（字符），避免超长
 PROMPT_GLOSSARY_MAX = 5000
 PROMPT_REFERENCE_MAX = 4000
@@ -251,10 +251,28 @@ def run_task(
 
 
 def _resolve_model(book: Book, task: GenerationTask) -> str:
-    """从 book.default_model 或 task.params 解析出 LiteLLM 可用模型名。"""
-    if task.params and isinstance(task.params, dict) and task.params.get("model"):
-        return str(task.params["model"])
-    return (book.default_model or "gpt-4o-mini").strip()
+    """LiteLLM 使用的模型名：优先 .env（OPENAI_MODEL / DEFAULT_MODEL），否则 task.params 或 book.default_model；绝不使用 DeepSeek/Moonshot。"""
+    from app.config import get_default_model, OPENAI_API_BASE
+    raw = get_default_model()
+    if raw:
+        raw = raw.strip()
+    if not raw and task.params and isinstance(task.params, dict) and task.params.get("model"):
+        raw = str(task.params["model"]).strip()
+    if not raw and getattr(book, "default_model", None):
+        raw = (book.default_model or "").strip()
+    if raw and (raw.startswith("deepseek/") or raw.startswith("moonshot/")):
+        raw = ""
+    if not raw:
+        raise ValueError(
+            "未配置调用模型。请在 .env 中设置 OPENAI_MODEL 或 DEFAULT_MODEL 后重启服务，例如：\n"
+            "OPENAI_MODEL=openai/grok-4-0709  或  OPENAI_MODEL=claude-3-7-sonnet-20250219\n"
+            "（可复制 .env.example 为 .env 后修改）"
+        )
+    # 若已配置 OPENAI_API_BASE（代理），强制走 openai/ 前缀，避免 LiteLLM 误路由到 DeepSeek 等
+    if OPENAI_API_BASE and OPENAI_API_BASE.strip():
+        if not raw.startswith("openai/"):
+            raw = "openai/" + raw
+    return raw
 
 
 def _call_llm_with_retry(
@@ -267,21 +285,24 @@ def _call_llm_with_retry(
 ) -> str:
     """带重试的 LiteLLM 调用，失败时更新 task.progress_message 并 commit 以便前端轮询可见。progress_hint 会显示在进度中，便于用户判断当前步骤。"""
     import litellm
+    from app.config import OPENAI_API_BASE, OPENAI_API_KEY
 
-    # 去掉 API base 末尾斜杠，避免请求路径出现 /v1//chat/completions 导致 404（DeepSeek / Moonshot 等）
-    for key in ("DEEPSEEK_API_BASE", "MOONSHOT_API_BASE"):
-        val = os.environ.get(key)
-        if val and isinstance(val, str):
-            os.environ[key] = val.rstrip("/")
+    # 调试：确认实际使用的模型（控制台可见）
+    print("[LiteLLM] model=%r api_base=%r" % (model, OPENAI_API_BASE[:50] + "..." if OPENAI_API_BASE and len(OPENAI_API_BASE) > 50 else OPENAI_API_BASE), flush=True)
 
     last_error: Exception | None = None
-    # 强制限制 max_tokens，DeepSeek 仅支持 [1, 8192]，且 LiteLLM 可能使用默认值覆盖，故显式传整型
     capped = min(max(1, int(max_tokens) if max_tokens is not None else LLM_MAX_TOKENS_CAP), LLM_MAX_TOKENS_CAP)
     kwargs: dict[str, Any] = {
         "timeout": LLM_REQUEST_TIMEOUT,
         "max_tokens": capped,
         "max_completion_tokens": capped,
     }
+    # 强制走代理：显式传 api_base 与 api_key，避免 LiteLLM 按模型名误路由到 DeepSeek 等
+    if OPENAI_API_BASE and OPENAI_API_BASE.strip():
+        base = OPENAI_API_BASE.rstrip("/")
+        kwargs["api_base"] = base
+        if OPENAI_API_KEY and OPENAI_API_KEY.strip():
+            kwargs["api_key"] = OPENAI_API_KEY
     hint_suffix = ("（" + progress_hint + "）") if progress_hint else ""
     for attempt in range(LLM_MAX_RETRIES):
         try:
