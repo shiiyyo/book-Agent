@@ -6,18 +6,50 @@
   <title>自动化写书</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; color: #222; }
-    .container { max-width: 960px; margin: 0 auto; }
-    h1 { font-size: 1.4rem; margin: 0 0 1rem 0; color: #1565c0; }
-    .card { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    body {
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: radial-gradient(1200px 600px at 10% 0%, rgba(21,101,192,0.10), transparent 60%),
+                  radial-gradient(900px 500px at 90% 10%, rgba(46,125,50,0.10), transparent 55%),
+                  #f6f7fb;
+      color: #1f2937;
+    }
+    .container { max-width: 980px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.75rem 0; color: #0f3d8c; letter-spacing: 0.2px; }
+    .card {
+      background: rgba(255,255,255,0.80);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 12px;
+      padding: 1.1rem;
+      margin-bottom: 0.9rem;
+      box-shadow: 0 6px 24px rgba(15, 23, 42, .06);
+    }
     .card h2 { font-size: 1rem; margin: 0 0 0.75rem 0; color: #333; }
     label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
     input[type="text"], textarea, select { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
     textarea { min-height: 80px; resize: vertical; }
-    button, .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; background: #1565c0; color: #fff; }
+    button, .btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #1565c0;
+      color: #fff;
+      transition: background-color .15s ease, transform .03s ease, box-shadow .15s ease, opacity .15s ease;
+      box-shadow: 0 6px 18px rgba(21, 101, 192, 0.18);
+    }
     button:hover, .btn:hover { background: #0d47a1; }
-    button:disabled { background: #9e9e9e; cursor: not-allowed; }
-    button.secondary { background: #757575; }
+    button:active, .btn:active { transform: translateY(1px); }
+    button:focus-visible, .btn:focus-visible { outline: 2px solid rgba(21,101,192,0.45); outline-offset: 2px; }
+    button:disabled, .btn:disabled, .btn.disabled { background: #9e9e9e; cursor: not-allowed; opacity: .85; box-shadow: none; }
+    button.secondary, .btn.secondary { background: #64748b; box-shadow: 0 6px 18px rgba(100, 116, 139, 0.18); }
+    button.secondary:hover, .btn.secondary:hover { background: #475569; }
+    button.secondary:active, .btn.secondary:active { background: #3b475a; }
+    button.is-loading, .btn.is-loading { background: #9e9e9e !important; cursor: wait; transform: none; box-shadow: none; }
     a.btn.disabled { background: #9e9e9e; cursor: not-allowed; pointer-events: none; }
     .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
     .row > * { flex: 1; min-width: 200px; }
@@ -41,6 +73,12 @@
     .outline-preview ol, .chapter-preview ol { margin: 0.35rem 0; padding-left: 1.25rem; }
     .outline-preview code, .chapter-preview code { background: #eee; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
     .outline-preview pre, .chapter-preview pre { white-space: pre-wrap; background: #f0f0f0; padding: 0.5rem; border-radius: 4px; overflow-x: auto; }
+    /* Section approval highlighting */
+    .sec-badge { display:inline-block; margin-left:0.5rem; padding:0.05rem 0.45rem; border-radius:999px; font-size:12px; border:1px solid rgba(15,23,42,0.10); vertical-align:middle; }
+    .sec-approved { background: rgba(46,125,50,0.10); border-left: 4px solid rgba(46,125,50,0.65); padding-left: 0.45rem; border-radius: 6px; }
+    .sec-approved .sec-badge { color:#2e7d32; background: rgba(46,125,50,0.10); }
+    .sec-pending { background: rgba(245,158,11,0.08); border-left: 4px solid rgba(245,158,11,0.65); padding-left: 0.45rem; border-radius: 6px; }
+    .sec-pending .sec-badge { color:#b45309; background: rgba(245,158,11,0.10); }
     /* 内容类型：按钮式选择 */
     .content-type-group { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid #ccc; }
     .content-type-group .content-type-btn { padding: 0.45rem 1rem; border: none; background: #fff; color: #555; font-size: 14px; cursor: pointer; border-right: 1px solid #ccc; }
@@ -60,6 +98,29 @@
     .result-modal .result-modal-body { font-size: 14px; color: #333; margin-bottom: 1.25rem; }
     .result-modal .result-modal-footer { text-align: right; }
     .result-modal .result-modal-footer .btn { padding: 0.5rem 1.25rem; }
+
+    /* Sticky task bar */
+    .taskbar {
+      position: sticky;
+      top: 0.75rem;
+      z-index: 50;
+      margin: 0 0 0.75rem 0;
+      padding: 0.65rem 0.8rem;
+      border-radius: 12px;
+      border: 1px solid rgba(15, 23, 42, 0.10);
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .06);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      justify-content: space-between;
+    }
+    .taskbar .left { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    .pill { font-size: 12px; padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid rgba(15,23,42,0.12); color: #0f3d8c; background: rgba(21,101,192,0.08); }
+    .taskbar .msg { font-size: 13px; color: #334155; }
+    .taskbar .right { font-size: 12px; color: #64748b; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -67,6 +128,13 @@
   <div class="container">
     <h1>📚 自动化写书</h1>
     <div id="msg"></div>
+    <div id="taskBar" class="taskbar" aria-live="polite">
+      <div class="left">
+        <span class="pill">Current task</span>
+        <span id="taskBarText" class="msg">Idle.</span>
+      </div>
+      <div id="taskBarMeta" class="right"></div>
+    </div>
 
     <div class="card">
       <h2>选择书籍</h2>
@@ -179,18 +247,98 @@
         <div id="chapterContentCard" style="display:none;">
           <h3 style="font-size:0.9rem; margin-top:0; display:flex; align-items:center; flex-wrap:wrap; gap:0.5rem;">章节正文 <span id="chapterStatus" class="module-status" aria-live="polite"></span></h3>
           <p id="chapterContentTitle" class="muted" style="margin:0.25rem 0 0 0; font-size:0.85rem;"></p>
-          <div id="chapterContentToolbar" style="display:none; margin-bottom:0.25rem;"><button type="button" id="btnChapterEdit" class="secondary">编辑</button><button type="button" id="btnChapterFormat" class="secondary" title="去除粗体星号、统一换行与空行，与导出格式一致">应用段落格式</button></div>
-          <div id="chapterRevisionWrap" style="display:none; margin-bottom:0.25rem;"><label>修改意图</label><select id="chapterRevisionPreset"><option value="">-- 选择常见意图（可选）--</option><option value="更学术化">更学术化</option><option value="增加案例与数据">增加案例与数据</option><option value="扩充篇幅">扩充篇幅</option><option value="精简表述">精简表述</option><option value="其他">其他（在下方填写）</option></select><input type="text" id="chapterRevisionInput" placeholder="补充具体说明，如：第二段更学术化、补充数据来源" style="max-width:400px; margin-top:0.25rem;" /></div>
+          <div id="chapterStreamWrap" style="display:none; margin:0.35rem 0 0.5rem 0; padding:0.6rem 0.75rem; border-radius:10px; background:rgba(21,101,192,0.06); border:1px solid rgba(15,23,42,0.08);">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+              <div><strong id="chapterStreamTitle">⏳ 运行中…</strong> <span id="chapterStreamHint" class="muted"></span></div>
+              <button type="button" id="btnChapterStreamClear" class="secondary" style="padding:0.35rem 0.6rem;">清空输出</button>
+            </div>
+            <pre id="chapterStreamOutput" class="outline-preview" style="max-height:220px; margin:0.5rem 0 0 0;"></pre>
+          </div>
+          <div id="chapterContentToolbar" style="display:none; margin-bottom:0.25rem; display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+            <button type="button" id="btnChapterEdit" class="secondary">编辑</button>
+            <button type="button" id="btnChapterFormat" class="secondary" title="去除粗体星号、统一换行与空行，与导出格式一致">应用段落格式</button>
+            <button type="button" id="btnChapterShowDraft" class="secondary" title="跳转到草稿视图：此时修改意图/定向修改面向草稿">查看草稿</button>
+            <button type="button" id="btnChapterShowFinal" class="secondary" style="display:none;" title="返回终稿视图：此时修改意图/定向修改面向终稿">返回终稿</button>
+          </div>
+          <div id="chapterStageActions" style="display:none; margin:0.25rem 0 0.5rem 0; display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center;">
+            <button type="button" id="btnChapterDraft" class="secondary" title="生成约 3000 字章节草稿（更快，便于先审阅结构）">生成章节草稿（≈3000字）</button>
+            <div id="finalizeSectionWrap" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+              <select id="finalizeSectionSelect" style="max-width:320px; margin:0;">
+                <option value="">-- 选择要生成的小节（终稿）--</option>
+              </select>
+              <button type="button" id="btnChapterFinalizeSections" class="secondary" title="只生成所选小节（每节≈3000字），并写入终稿对应位置">生成所选小节终稿</button>
+            </div>
+          </div>
+          <div id="chapterRevisionWrap" style="display:none; margin-bottom:0.25rem;">
+            <label>修改意图（用于扩写/草稿/终稿/定向改写）</label>
+            <select id="chapterRevisionPreset">
+              <option value="">-- 选择常见意图（可选）--</option>
+              <option value="更学术化">更学术化</option>
+              <option value="增加案例与数据">增加案例与数据</option>
+              <option value="扩充篇幅">扩充篇幅</option>
+              <option value="精简表述">精简表述</option>
+              <option value="其他">其他（在下方填写）</option>
+            </select>
+            <input type="text" id="chapterRevisionInput" placeholder="补充具体说明，如：第二段更学术化、补充数据来源" style="max-width:520px; margin-top:0.25rem;" />
+          </div>
+          <div id="chapterTargetedRewriteWrap" style="display:none; margin:0.25rem 0 0.5rem 0;">
+            <label id="targetedRewriteLabel">定向修改（只改指定小节）</label>
+            <div id="rewriteSectionRow" class="row" style="gap:0.5rem; align-items:center;">
+              <div style="flex:1; min-width:220px;">
+                <select id="rewriteSectionSelect">
+                  <option value="">-- 请选择要修改的小节标题（## / ###）--</option>
+                </select>
+              </div>
+              <div style="flex:0; min-width:120px;">
+                <button type="button" id="btnRewriteSection" class="secondary">定向改写</button>
+              </div>
+            </div>
+            <div id="rewriteRangeWrap" style="display:none; margin-top:0.5rem;">
+              <label class="muted" style="margin:0 0 0.25rem 0;">终稿按段落范围定向（可选，用于终稿视图）</label>
+              <div class="row" style="gap:0.5rem; align-items:center;">
+                <div style="flex:1; min-width:220px;">
+                  <input type="text" id="rewriteAnchorStart" placeholder="anchor_start：粘贴要改写范围的起始片段（原文）" />
+                </div>
+                <div style="flex:1; min-width:220px;">
+                  <input type="text" id="rewriteAnchorEnd" placeholder="anchor_end：粘贴要改写范围的结束片段（原文）" />
+                </div>
+                <div style="flex:0; min-width:120px;">
+                  <button type="button" id="btnRewriteRange" class="secondary">按范围改写</button>
+                </div>
+              </div>
+            </div>
+            <p class="muted" style="margin:0.25rem 0 0 0;">提示：将只重写选中小节，其余内容保持不变。</p>
+          </div>
+          <div id="chapterDraftWrap" style="display:none; margin:0.25rem 0 0.5rem 0; padding:0.6rem 0.75rem; border-radius:10px; background:rgba(100,116,139,0.06); border:1px solid rgba(15,23,42,0.08);">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+              <div><strong>章节草稿（历史）</strong> <span class="muted">用于对照，不会覆盖终稿</span></div>
+              <button type="button" id="btnChapterHideDraft" class="secondary" style="padding:0.35rem 0.6rem;">收起</button>
+            </div>
+            <div id="chapterDraftBody" class="outline-preview" style="max-height:260px; margin:0.5rem 0 0 0;"></div>
+          </div>
+          <div id="chapterApproveWrap" style="display:none; margin:0.25rem 0 0.5rem 0; padding:0.6rem 0.75rem; border-radius:10px; background:rgba(46,125,50,0.06); border:1px solid rgba(15,23,42,0.08);">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+              <div><strong>小节审核</strong> <span class="muted">通过的小节会优先写入导出（Word/Markdown）</span></div>
+            </div>
+            <div class="row" style="gap:0.5rem; align-items:center; margin-top:0.5rem;">
+              <div style="flex:1; min-width:220px;">
+                <select id="approveSectionSelect">
+                  <option value="">-- 请选择要标记通过的小节标题（## / ###）--</option>
+                </select>
+              </div>
+              <div style="flex:0; min-width:160px;">
+                <button type="button" id="btnApproveSection" class="secondary">审核已过</button>
+              </div>
+              <div style="flex:2; min-width:220px;">
+                <span id="approveStatusText" class="muted"></span>
+              </div>
+            </div>
+          </div>
           <div id="chapterContentBody" class="chapter-preview muted">请选择左侧章节查看正文。</div>
           <div id="chapterEditWrap" style="display:none;"><textarea id="chapterEditArea" class="chapter-preview" rows="16" style="min-height:240px;"></textarea><div style="margin-top:0.5rem;"><button type="button" id="btnChapterSave">保存</button><button type="button" id="btnChapterCancel" class="secondary">取消</button></div></div>
           <div id="chapterRunning" style="display:none; margin-top:0.5rem;"><span class="muted">⏳ 正在生成…</span> <button type="button" id="btnChapterCancelTask" class="secondary">取消生成</button></div>
         </div>
       </div>
-    </div>
-
-    <div class="card" id="cardMonitor">
-      <h2>当前任务</h2>
-      <div id="monitorContent" class="muted">无运行中任务。</div>
     </div>
   </div>
 
@@ -210,6 +358,7 @@
     let books = [];
     let currentBook = null;
     let currentChapterId = null;
+    let chapterViewMode = "final"; // "final" | "draft"
 
     function msg(t, type) {
       const el = document.getElementById("msg");
@@ -264,6 +413,15 @@
       s = s.replace(/\*\*/g, "").replace(/\*/g, "");
       s = s.replace(/\n[\s]*\n[\s]*\n+/g, "\n\n").replace(/\n{2,}/g, "\n\n");
       s = s.split("\n").map(function(line) { return line.replace(/^#+\s*/, ""); }).join("\n");
+      return s.trim();
+    }
+
+    /** 预览用：去除 * 与多余空行，但保留 Markdown 标题（用于小节审核高亮） */
+    function toPreviewKeepHeadings(text) {
+      if (!text || typeof text !== "string") return text || "";
+      var s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      s = s.replace(/\*\*/g, "").replace(/\*/g, "");
+      s = s.replace(/\n[\s]*\n[\s]*\n+/g, "\n\n").replace(/\n{2,}/g, "\n\n");
       return s.trim();
     }
 
@@ -448,8 +606,9 @@
       }
       list.innerHTML = currentBook.chapters.map(ch => {
         var label = (ch.title && (ch.title + "").trim()) ? (ch.title + "").trim() : ("第 " + ch.order_index + " 章");
+        var runningMark = (runningChapterId && runningChapterId === ch.id) ? " <small class='muted'>（⏳ 生成中）</small>" : "";
         return "<div class='chapter-item" + (currentChapterId === ch.id ? " active" : "") + "' data-id='" + ch.id + "'>" +
-          "<span><strong>" + label.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</strong>" + (ch.content ? " <small class='muted'>（已生成正文）</small>" : "") + "</span>" +
+          "<span><strong>" + label.replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</strong>" + (ch.content ? " <small class='muted'>（已生成正文）</small>" : "") + runningMark + "</span>" +
           "<button type='button' class='btn chapter-gen' data-id='" + ch.id + "'>扩写本章</button>" +
           "</div>";
       }).join("");
@@ -483,24 +642,173 @@
         return;
       }
       cardEl.style.display = "block";
+      // Stage actions (draft / finalize)
+      const stageWrap = document.getElementById("chapterStageActions");
+      if (stageWrap) stageWrap.style.display = "flex";
+      const btnDraft = document.getElementById("btnChapterDraft");
+      const btnFinalize = document.getElementById("btnChapterFinalizeSections");
+      if (btnDraft) btnDraft.onclick = function() { generateChapterDraft(chapterId); };
+      if (btnFinalize) btnFinalize.onclick = function() { finalizeChapterBySections(chapterId); };
       document.getElementById("chapterEditWrap").style.display = "none";
       document.getElementById("chapterContentBody").style.display = "block";
       document.getElementById("chapterRevisionWrap").style.display = "block";
-      if (ch.content && ch.content.trim()) {
+      // Hide draft panel on chapter switch
+      const draftWrap = document.getElementById("chapterDraftWrap");
+      if (draftWrap) draftWrap.style.display = "none";
+      // Targeted rewrite (sections)
+      const rewriteWrap = document.getElementById("chapterTargetedRewriteWrap");
+      if (rewriteWrap) rewriteWrap.style.display = "block";
+      const targetedRewriteLabel = document.getElementById("targetedRewriteLabel");
+      const rewriteSectionRow = document.getElementById("rewriteSectionRow");
+      const rewriteSel = document.getElementById("rewriteSectionSelect");
+      const rewriteBtn = document.getElementById("btnRewriteSection");
+      const rewriteRangeWrap = document.getElementById("rewriteRangeWrap");
+      const btnRewriteRange = document.getElementById("btnRewriteRange");
+      const anchorStartEl = document.getElementById("rewriteAnchorStart");
+      const anchorEndEl = document.getElementById("rewriteAnchorEnd");
+      function parseHeadings(md) {
+        const out = [];
+        (md || "").split(/\r?\n/).forEach(line => {
+          const m = (line || "").trim().match(/^(#{2,3})\s+(.+)$/);
+          if (m) out.push((m[2] || "").trim());
+        });
+        // unique preserve order
+        return out.filter((t, idx) => t && out.indexOf(t) === idx);
+      }
+      if (rewriteSel) {
+        const titles = parseHeadings((chapterViewMode === "draft") ? (ch && ch.draft_content ? ch.draft_content : "") : (ch && ch.content ? ch.content : ""));
+        rewriteSel.innerHTML = "<option value=''>-- 请选择要修改的小节标题（## / ###）--</option>" +
+          titles.map(t => "<option value='" + (t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;")) + "'>" +
+            t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + "</option>").join("");
+      }
+      // Draft: section rewrite; Final: prefer paragraph range rewrite (keep section list for approve)
+      if (targetedRewriteLabel) targetedRewriteLabel.textContent = (chapterViewMode === "draft")
+        ? "定向修改（草稿：按小节）"
+        : "定向修改（终稿：按段落范围）";
+      if (rewriteSectionRow) rewriteSectionRow.style.display = (chapterViewMode === "draft") ? "flex" : "none";
+      if (rewriteRangeWrap) rewriteRangeWrap.style.display = (chapterViewMode === "final") ? "block" : "none";
+      if (rewriteBtn) {
+        rewriteBtn.onclick = async function() {
+          if (!currentBook || !currentChapterId) return;
+          const sectionTitle = (rewriteSel && rewriteSel.value) ? rewriteSel.value : "";
+          const instruction = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
+          if (!sectionTitle) { msg("请选择要定向修改的小节标题", "error"); return; }
+          if (!instruction) { msg("请填写修改意图", "error"); return; }
+          try {
+            const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+            const r = await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId + "/rewrite", {
+              method: "POST",
+              body: JSON.stringify({ content_type: contentType, scope: "chapter_section", section_title: sectionTitle, instruction, target: (chapterViewMode === "draft" ? "draft" : "final") })
+            });
+            if (r.status === 202) {
+              document.getElementById("chapterRunning").style.display = "block";
+              startTaskStream(r.data.task_id);
+            } else {
+              await loadBook(currentBook.id);
+              selectChapter(currentChapterId);
+            }
+          } catch (err) { msg(err.message, "error"); }
+        };
+      }
+      if (btnRewriteRange) {
+        btnRewriteRange.onclick = async function() {
+          if (!currentBook || !currentChapterId) return;
+          const instruction = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
+          const a = (anchorStartEl && anchorStartEl.value) ? anchorStartEl.value.trim() : "";
+          const b = (anchorEndEl && anchorEndEl.value) ? anchorEndEl.value.trim() : "";
+          if (!a || !b) { msg("请填写 anchor_start 和 anchor_end", "error"); return; }
+          if (!instruction) { msg("请填写修改意图", "error"); return; }
+          try {
+            const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+            const r = await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId + "/rewrite", {
+              method: "POST",
+              body: JSON.stringify({ content_type: contentType, scope: "chapter_paragraph_range", anchor_start: a, anchor_end: b, instruction, target: "final" })
+            });
+            if (r.status === 202) {
+              document.getElementById("chapterRunning").style.display = "block";
+              startTaskStream(r.data.task_id);
+            } else {
+              await loadBook(currentBook.id);
+              selectChapter(currentChapterId);
+            }
+          } catch (err) { msg(err.message, "error"); }
+        };
+      }
+      // 只有正在生成的章节才显示流式输出框
+      if (!runningChapterId || runningChapterId !== chapterId) {
+        setChapterStreamVisible(false);
+      }
+      // Toolbar buttons: draft/final view switch
+      const btnShowDraft = document.getElementById("btnChapterShowDraft");
+      const btnShowFinal = document.getElementById("btnChapterShowFinal");
+      if (btnShowDraft && btnShowFinal) {
+        if (chapterViewMode === "draft") { btnShowDraft.style.display = "none"; btnShowFinal.style.display = "inline-block"; }
+        else { btnShowFinal.style.display = "none"; btnShowDraft.style.display = "inline-block"; }
+      }
+      // Stage buttons visibility
+      const btnDraftVis = document.getElementById("btnChapterDraft");
+      const finalizeWrap = document.getElementById("finalizeSectionWrap");
+      if (btnDraftVis) btnDraftVis.style.display = (chapterViewMode === "draft") ? "inline-block" : "none";
+      if (finalizeWrap) finalizeWrap.style.display = (chapterViewMode === "final") ? "flex" : "none";
+      const showDraft = (chapterViewMode === "draft");
+      const finalText = (ch && ch.content) ? (ch.content + "") : "";
+      const draftText = (ch && ch.draft_content) ? (ch.draft_content + "") : "";
+      const displayText = showDraft ? draftText : finalText;
+      if (displayText && displayText.trim()) {
         titleEl.textContent = (ch.title && (ch.title + "").trim()) ? (ch.title + "").trim() : ("第 " + ch.order_index + " 章");
         bodyEl.classList.remove("muted");
-        bodyEl.innerHTML = renderMarkdown(toPlainForPreview(ch.content));
+        bodyEl.innerHTML = renderMarkdown(toPreviewKeepHeadings(displayText));
+        // Highlight approved/pending sections in FINAL view
+        try {
+          if (!showDraft) {
+            let approved = [];
+            const ap = ch.approved_sections;
+            if (ap && typeof ap === "object" && Array.isArray(ap.titles)) approved = ap.titles;
+            const set = new Set(approved || []);
+            bodyEl.querySelectorAll("h2, h3").forEach(h => {
+              const t = (h.textContent || "").trim();
+              const ok = set.has(t);
+              h.classList.add(ok ? "sec-approved" : "sec-pending");
+              // badge
+              const existing = h.querySelector(".sec-badge");
+              if (!existing) {
+                const b = document.createElement("span");
+                b.className = "sec-badge";
+                b.textContent = ok ? "已审核" : "未审核";
+                h.appendChild(b);
+              } else {
+                existing.textContent = ok ? "已审核" : "未审核";
+              }
+            });
+          }
+        } catch (_) {}
         document.getElementById("chapterContentToolbar").style.display = "block";
       } else {
-        titleEl.textContent = "章节正文";
+        titleEl.textContent = showDraft ? "章节草稿" : "章节正文";
         bodyEl.classList.add("muted");
-        bodyEl.textContent = "本章尚未生成正文，请先点击左侧「扩写本章」。";
+        bodyEl.textContent = showDraft
+          ? "本章尚未生成草稿，请先点击「生成章节草稿（≈3000字）」。"
+          : "本章尚未生成正文，请先点击左侧「扩写本章」。";
         document.getElementById("chapterContentToolbar").style.display = "none";
       }
       const list = document.getElementById("chapterList");
       list.querySelectorAll(".chapter-item").forEach(item => {
         item.classList.toggle("active", parseInt(item.dataset.id, 10) === chapterId);
       });
+      try { refreshApproveUI(); } catch (_) {}
+      // Finalize section selector (from outline headings, fallback to draft headings)
+      try {
+        const sel = document.getElementById("finalizeSectionSelect");
+        const wrap = document.getElementById("finalizeSectionWrap");
+        if (sel && wrap) {
+          wrap.style.display = (chapterViewMode === "final") ? "flex" : "none";
+          const src = (ch && (ch.outline_content || "").trim()) ? (ch.outline_content || "") : (ch && ch.draft_content ? ch.draft_content : "");
+          const titles = parseHeadings(src || "");
+          sel.innerHTML = "<option value=''>-- 选择要生成的小节（终稿）--</option>" +
+            titles.map(t => "<option value='" + (t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;")) + "'>" +
+              t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</option>").join("");
+        }
+      } catch (_) {}
     }
 
     document.getElementById("bookSelect").addEventListener("change", e => {
@@ -584,6 +892,137 @@
     let prefacePollTimer = null;
     let lastRunningTaskType = null;
     let moduleDoneTimer = null;
+    let activeEventSource = null;
+    let activeStreamTaskId = null;
+    let activeStreamBuffer = "";
+    let runningChapterId = null;
+
+    function closeActiveStream() {
+      try { if (activeEventSource) activeEventSource.close(); } catch (_) {}
+      activeEventSource = null;
+      activeStreamTaskId = null;
+      activeStreamBuffer = "";
+    }
+
+    function setChapterStreamVisible(visible) {
+      const wrap = document.getElementById("chapterStreamWrap");
+      if (!wrap) return;
+      wrap.style.display = visible ? "block" : "none";
+    }
+    function updateChapterStream(titleText, hintText, outputText) {
+      const titleEl = document.getElementById("chapterStreamTitle");
+      const hintEl = document.getElementById("chapterStreamHint");
+      const outEl = document.getElementById("chapterStreamOutput");
+      if (titleEl) titleEl.textContent = titleText || "";
+      if (hintEl) hintEl.textContent = hintText || "";
+      if (outEl) outEl.textContent = outputText || "";
+      setChapterStreamVisible(true);
+    }
+
+    function startTaskStream(taskId) {
+      if (!currentBook || !taskId) return;
+      closeActiveStream();
+      activeStreamTaskId = taskId;
+      activeStreamBuffer = "";
+
+      const base = (typeof API !== "undefined" && API) ? API : "";
+      const url = base.replace(/\/$/, "") + "/api/books/" + currentBook.id + "/tasks/stream?task_id=" + encodeURIComponent(taskId);
+      const es = new EventSource(url);
+      activeEventSource = es;
+
+      function escapeHtml(s) {
+        return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+
+      es.onmessage = function(ev) {
+        if (!ev || !ev.data) return;
+        let data;
+        try { data = JSON.parse(ev.data); } catch (_) { return; }
+        if (!data) return;
+        if (data.task_id && String(data.task_id) !== String(taskId)) return;
+
+        const status = (data.status || "").toLowerCase();
+        const taskType = (data.task_type || "").toLowerCase();
+        const progressText = (data.progress_message || "运行中…").trim() || "运行中…";
+        const chId = (data.chapter_id != null && data.chapter_id !== "") ? parseInt(data.chapter_id, 10) : null;
+        const delta = data.delta || "";
+        if (delta) activeStreamBuffer += delta;
+
+        const outlineStatusEl = document.getElementById("outlineStatus");
+        const outlineRunningEl = document.getElementById("outlineRunning");
+        const chapterStatusEl = document.getElementById("chapterStatus");
+        const chapterRunningEl = document.getElementById("chapterRunning");
+        const prefaceStatusEl = document.getElementById("prefaceStatus");
+        const prefaceRunningEl = document.getElementById("prefaceRunning");
+
+        lastRunningTaskType = taskType;
+        runningChapterId = chId;
+        if (taskType === "outline_l1") {
+          outlineStatusEl.textContent = "⏳";
+          outlineStatusEl.className = "module-status running";
+          outlineRunningEl.style.display = "block";
+          outlineRunningEl.querySelector("span.muted").textContent = "⏳ " + progressText + " ";
+        } else if (taskType === "chapter" || taskType === "rewrite") {
+          chapterStatusEl.textContent = "⏳";
+          chapterStatusEl.className = "module-status running";
+          chapterRunningEl.style.display = "block";
+          chapterRunningEl.querySelector("span.muted").textContent = "⏳ " + progressText + " ";
+          // 只在对应章节右侧显示流式输出
+          if (chId && currentChapterId && chId === currentChapterId) {
+            const ch = currentBook && currentBook.chapters ? currentBook.chapters.find(c => c.id === chId) : null;
+            const label = ch && ch.title ? (ch.title + "").trim() : (chId ? ("章节 ID " + chId) : "");
+            updateChapterStream("⏳ " + progressText, label ? ("正在生成：" + label) : "", activeStreamBuffer);
+          }
+        } else if (taskType === "preface") {
+          prefaceStatusEl.textContent = "⏳";
+          prefaceStatusEl.className = "module-status running";
+          prefaceRunningEl.style.display = "block";
+          if (prefaceRunningEl.querySelector("span.muted")) prefaceRunningEl.querySelector("span.muted").textContent = "⏳ " + progressText + " ";
+        }
+
+        // Sticky task bar
+        const tb = document.getElementById("taskBarText");
+        const tbm = document.getElementById("taskBarMeta");
+        if (tb) tb.textContent = (taskType ? (taskType + ": ") : "") + progressText;
+        if (tbm) tbm.textContent = "SSE streaming";
+
+        if (data.done || status === "completed" || status === "failed" || status === "cancelled") {
+          // 立即清理“运行中”UI，避免卡住
+          try {
+            document.getElementById("outlineRunning").style.display = "none";
+            document.getElementById("chapterRunning").style.display = "none";
+            document.getElementById("prefaceRunning").style.display = "none";
+          } catch (_) {}
+          try {
+            const os = document.getElementById("outlineStatus");
+            const cs = document.getElementById("chapterStatus");
+            const ps = document.getElementById("prefaceStatus");
+            if (os && taskType === "outline_l1") { os.textContent = "✓ 已生成"; os.className = "module-status done"; }
+            if (cs && (taskType === "chapter" || taskType === "rewrite")) { cs.textContent = "✓ 已生成"; cs.className = "module-status done"; }
+            if (ps && taskType === "preface") { ps.textContent = "✓ 已生成"; ps.className = "module-status done"; }
+          } catch (_) {}
+          closeActiveStream();
+          loadBook(currentBook.id).then(function() {
+            render();
+            if (currentChapterId) selectChapter(currentChapterId);
+          });
+          const tb2 = document.getElementById("taskBarText");
+          const tbm2 = document.getElementById("taskBarMeta");
+          if (tb2) tb2.textContent = "Idle.";
+          if (tbm2) tbm2.textContent = "";
+          runningChapterId = null;
+        }
+      };
+
+      es.onerror = function() {
+        // SSE may be blocked by proxies; fallback to polling (existing timers)
+        closeActiveStream();
+        const tb = document.getElementById("taskBarText");
+        const tbm = document.getElementById("taskBarMeta");
+        if (tb) tb.textContent = "Streaming unavailable; falling back to polling.";
+        if (tbm) tbm.textContent = "polling";
+      };
+    }
 
     document.getElementById("btnPreface").addEventListener("click", async (e) => {
       e.preventDefault();
@@ -610,7 +1049,7 @@
         const res = r.status === 202 ? { status: 202, data } : data;
         if (res.status === 202 && res.data && res.data.task_id) {
           document.getElementById("prefaceRunning").style.display = "block";
-          startPrefacePoll(res.data.task_id);
+          startTaskStream(res.data.task_id);
         } else {
           await loadBook(currentBook.id);
           render();
@@ -815,7 +1254,7 @@
         const r = await api("/api/books/" + currentBook.id + "/generate-outline", { method: "POST", body: JSON.stringify(body) });
         if (r.status === 202) {
           document.getElementById("outlineRunning").style.display = "block";
-          startOutlinePoll(r.data.task_id);
+          startTaskStream(r.data.task_id);
         } else {
           await loadBook(currentBook.id);
           render();
@@ -837,6 +1276,7 @@
     async function generateChapter(chapterId) {
       if (!currentBook) return;
       clearMsg();
+      try { selectChapter(chapterId); } catch (_) {}
       const revision = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
       const list = document.getElementById("chapterList");
       list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = true; });
@@ -845,9 +1285,60 @@
         const r = await api("/api/books/" + currentBook.id + "/chapters/" + chapterId + "/generate", { method: "POST", body: JSON.stringify({ content_type: contentType, revision_instruction: revision || undefined }) });
         if (r.status === 202) {
           document.getElementById("chapterRunning").style.display = "block";
-          startChapterPoll(chapterId, r.data.task_id);
+          startTaskStream(r.data.task_id);
         } else {
           msg("本章已生成");
+          await loadBook(currentBook.id);
+          selectChapter(chapterId);
+        }
+      } catch (err) { msg(err.message, "error"); }
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = false; });
+    }
+
+    async function generateChapterDraft(chapterId) {
+      if (!currentBook) return;
+      clearMsg();
+      try { selectChapter(chapterId); } catch (_) {}
+      const revision = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
+      const list = document.getElementById("chapterList");
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = true; });
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const r = await api("/api/books/" + currentBook.id + "/chapters/" + chapterId + "/generate-draft", {
+          method: "POST",
+          body: JSON.stringify({ content_type: contentType, revision_instruction: revision || undefined })
+        });
+        if (r.status === 202) {
+          document.getElementById("chapterRunning").style.display = "block";
+          startTaskStream(r.data.task_id);
+        } else {
+          msg("本章草稿已生成");
+          await loadBook(currentBook.id);
+          selectChapter(chapterId);
+        }
+      } catch (err) { msg(err.message, "error"); }
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = false; });
+    }
+
+    async function finalizeChapterBySections(chapterId) {
+      if (!currentBook) return;
+      clearMsg();
+      try { selectChapter(chapterId); } catch (_) {}
+      const revision = getRevisionInstruction("chapterRevisionPreset", "chapterRevisionInput");
+      const secTitle = (document.getElementById("finalizeSectionSelect") || {}).value || "";
+      const list = document.getElementById("chapterList");
+      list.querySelectorAll(".chapter-gen").forEach(b => { b.disabled = true; });
+      try {
+        const contentType = (document.getElementById("contentTypeSelect").value || "academic").toLowerCase();
+        const r = await api("/api/books/" + currentBook.id + "/chapters/" + chapterId + "/finalize-sections", {
+          method: "POST",
+          body: JSON.stringify({ content_type: contentType, revision_instruction: revision || undefined, section_title: secTitle || undefined })
+        });
+        if (r.status === 202) {
+          document.getElementById("chapterRunning").style.display = "block";
+          startTaskStream(r.data.task_id);
+        } else {
+          msg("本章逐节终稿已生成");
           await loadBook(currentBook.id);
           selectChapter(chapterId);
         }
@@ -902,10 +1393,111 @@
 
     document.getElementById("btnChapterEdit").addEventListener("click", () => {
       const ch = currentBook && currentBook.chapters && currentBook.chapters.find(c => c.id === currentChapterId);
-      const raw = (ch && ch.content) ? ch.content : "";
+      const raw = (chapterViewMode === "draft")
+        ? ((ch && ch.draft_content) ? ch.draft_content : "")
+        : ((ch && ch.content) ? ch.content : "");
       document.getElementById("chapterEditArea").value = raw;
       document.getElementById("chapterContentBody").style.display = "none";
       document.getElementById("chapterEditWrap").style.display = "block";
+    });
+
+    async function loadAndShowChapterDraft() {
+      if (!currentBook || !currentChapterId) return;
+      const wrap = document.getElementById("chapterDraftWrap");
+      const body = document.getElementById("chapterDraftBody");
+      if (!wrap || !body) return;
+      body.innerHTML = "<p class='muted'>加载中…</p>";
+      wrap.style.display = "block";
+      try {
+        const ch = currentBook && currentBook.chapters ? currentBook.chapters.find(c => c.id === currentChapterId) : null;
+        const localDraft = ch && ch.draft_content ? (ch.draft_content + "") : "";
+        if (localDraft && localDraft.trim()) {
+          body.innerHTML = renderMarkdown(toPreviewKeepHeadings(localDraft));
+          return;
+        }
+        const r = await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId + "/draft");
+        if (!r || !r.ok || !r.has_draft) {
+          body.innerHTML = "<p class='muted'>暂无草稿记录。请先点击「生成章节草稿（≈3000字）」生成一次。</p>";
+          return;
+        }
+        body.innerHTML = renderMarkdown(toPreviewKeepHeadings(r.content || ""));
+      } catch (err) {
+        body.innerHTML = "<p class='muted'>读取草稿失败：" + ((err && err.message) ? err.message : err) + "</p>";
+      }
+    }
+    const btnShowDraft = document.getElementById("btnChapterShowDraft");
+    const btnShowFinal = document.getElementById("btnChapterShowFinal");
+    if (btnShowDraft) btnShowDraft.addEventListener("click", async function() {
+      chapterViewMode = "draft";
+      if (btnShowDraft) btnShowDraft.style.display = "none";
+      if (btnShowFinal) btnShowFinal.style.display = "inline-block";
+      const approveWrap = document.getElementById("chapterApproveWrap");
+      if (approveWrap) approveWrap.style.display = "none";
+      await loadAndShowChapterDraft();
+      if (currentChapterId) selectChapter(currentChapterId);
+      msg("已进入草稿视图：定向改写/编辑将作用于草稿。");
+    });
+    if (btnShowFinal) btnShowFinal.addEventListener("click", function() {
+      chapterViewMode = "final";
+      if (btnShowFinal) btnShowFinal.style.display = "none";
+      if (btnShowDraft) btnShowDraft.style.display = "inline-block";
+      const draftWrap = document.getElementById("chapterDraftWrap");
+      if (draftWrap) draftWrap.style.display = "none";
+      if (currentChapterId) selectChapter(currentChapterId);
+      msg("已返回终稿视图：定向改写/编辑将作用于终稿。");
+    });
+    const btnHideDraft = document.getElementById("btnChapterHideDraft");
+    if (btnHideDraft) btnHideDraft.addEventListener("click", function() {
+      const wrap = document.getElementById("chapterDraftWrap");
+      if (wrap) wrap.style.display = "none";
+    });
+
+    async function refreshApproveUI() {
+      if (!currentBook || !currentChapterId) return;
+      const ch = currentBook && currentBook.chapters ? currentBook.chapters.find(c => c.id === currentChapterId) : null;
+      const wrap = document.getElementById("chapterApproveWrap");
+      const sel = document.getElementById("approveSectionSelect");
+      const statusEl = document.getElementById("approveStatusText");
+      if (!wrap || !sel) return;
+      if (chapterViewMode !== "final" || !ch || !(ch.content || "").trim()) {
+        wrap.style.display = "none";
+        return;
+      }
+      wrap.style.display = "block";
+      // reuse headings from chapter content
+      const titles = (function(md) {
+        const out = [];
+        (md || "").split(/\r?\n/).forEach(line => {
+          const m = (line || "").trim().match(/^(#{2,3})\s+(.+)$/);
+          if (m) out.push((m[2] || "").trim());
+        });
+        return out.filter((t, idx) => t && out.indexOf(t) === idx);
+      })(ch.content || "");
+      sel.innerHTML = "<option value=''>-- 请选择要标记通过的小节标题（## / ###）--</option>" +
+        titles.map(t => "<option value='" + (t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;")) + "'>" +
+          t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + "</option>").join("");
+
+      let approved = [];
+      const ap = ch.approved_sections;
+      if (ap && typeof ap === "object" && Array.isArray(ap.titles)) approved = ap.titles;
+      if (statusEl) statusEl.textContent = approved.length ? ("已通过：" + approved.join("；")) : "尚未标记任何小节通过。";
+    }
+
+    const btnApprove = document.getElementById("btnApproveSection");
+    if (btnApprove) btnApprove.addEventListener("click", async function() {
+      if (!currentBook || !currentChapterId) return;
+      const sel = document.getElementById("approveSectionSelect");
+      const title = sel && sel.value ? sel.value : "";
+      if (!title) { msg("请选择要标记通过的小节", "error"); return; }
+      try {
+        await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId + "/approve-section", {
+          method: "POST",
+          body: JSON.stringify({ section_title: title })
+        });
+        await loadBook(currentBook.id);
+        selectChapter(currentChapterId);
+        msg("已标记小节通过：" + title);
+      } catch (err) { msg(err.message, "error"); }
     });
     document.getElementById("btnChapterFormat").addEventListener("click", () => {
       var wrap = document.getElementById("chapterEditWrap");
@@ -925,8 +1517,13 @@
       if (!currentBook || !currentChapterId) return;
       const content = document.getElementById("chapterEditArea").value;
       try {
-        await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId, { method: "PUT", body: JSON.stringify({ content }) });
-        msg("章节已保存");
+        if (chapterViewMode === "draft") {
+          await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId + "/draft", { method: "PUT", body: JSON.stringify({ draft_content: content }) });
+          msg("草稿已保存");
+        } else {
+          await api("/api/books/" + currentBook.id + "/chapters/" + currentChapterId, { method: "PUT", body: JSON.stringify({ content }) });
+          msg("章节已保存");
+        }
         document.getElementById("chapterEditWrap").style.display = "none";
         document.getElementById("chapterContentBody").style.display = "block";
         await loadBook(currentBook.id);
@@ -948,7 +1545,8 @@
         const chapterRunningEl = document.getElementById("chapterRunning");
         const prefaceStatusEl = document.getElementById("prefaceStatus");
         const prefaceRunningEl = document.getElementById("prefaceRunning");
-        const el = document.getElementById("monitorContent");
+        const tb = document.getElementById("taskBarText");
+        const tbm = document.getElementById("taskBarMeta");
         if (r.last_error) {
           outlineStatusEl.textContent = "";
           outlineRunningEl.style.display = "none";
@@ -956,15 +1554,16 @@
           chapterRunningEl.style.display = "none";
           prefaceStatusEl.textContent = "";
           prefaceRunningEl.style.display = "none";
-          var errEsc = (r.last_error || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-          el.innerHTML = "<span class='error'>" + errEsc + "</span>";
+          if (tb) tb.textContent = "Error: " + (r.last_error || "");
+          if (tbm) tbm.textContent = "polling";
           return;
         }
         if (r.running) {
           lastRunningTaskType = (r.running.task_type || "").toLowerCase();
           var statusText = (r.running.progress_message || "运行中…").trim() || "运行中…";
+          runningChapterId = (r.running.chapter_id != null && r.running.chapter_id !== "") ? parseInt(r.running.chapter_id, 10) : null;
           if (lastRunningTaskType === "outline_l1") {
-            outlineStatusEl.textContent = "⏳ " + statusText;
+            outlineStatusEl.textContent = "⏳";
             outlineStatusEl.className = "module-status running";
             outlineRunningEl.style.display = "block";
             outlineRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
@@ -973,7 +1572,7 @@
             prefaceStatusEl.textContent = "";
             prefaceRunningEl.style.display = "none";
           } else if (lastRunningTaskType === "chapter" || lastRunningTaskType === "rewrite") {
-            chapterStatusEl.textContent = "⏳ " + statusText;
+            chapterStatusEl.textContent = "⏳";
             chapterStatusEl.className = "module-status running";
             chapterRunningEl.style.display = "block";
             chapterRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
@@ -981,8 +1580,13 @@
             outlineRunningEl.style.display = "none";
             prefaceStatusEl.textContent = "";
             prefaceRunningEl.style.display = "none";
+            if (runningChapterId && currentChapterId && runningChapterId === currentChapterId) {
+              const ch = currentBook && currentBook.chapters ? currentBook.chapters.find(c => c.id === runningChapterId) : null;
+              const label = ch && ch.title ? (ch.title + "").trim() : "";
+              updateChapterStream("⏳ " + statusText, label ? ("正在生成：" + label) : "", r.running.current_output || "");
+            }
           } else if (lastRunningTaskType === "preface") {
-            prefaceStatusEl.textContent = "⏳ " + statusText;
+            prefaceStatusEl.textContent = "⏳";
             prefaceStatusEl.className = "module-status running";
             prefaceRunningEl.style.display = "block";
             if (prefaceRunningEl.querySelector("span.muted")) prefaceRunningEl.querySelector("span.muted").textContent = "⏳ " + statusText + " ";
@@ -991,7 +1595,7 @@
             chapterStatusEl.textContent = "";
             chapterRunningEl.style.display = "none";
           } else {
-            outlineStatusEl.textContent = "⏳ " + statusText;
+            outlineStatusEl.textContent = "⏳";
             outlineStatusEl.className = "module-status running";
             outlineRunningEl.style.display = "block";
             chapterStatusEl.textContent = "";
@@ -999,7 +1603,8 @@
             prefaceStatusEl.textContent = "";
             prefaceRunningEl.style.display = "none";
           }
-          el.innerHTML = "<strong>" + statusText + "</strong><pre class='outline-preview' style='max-height:200px'>" + (r.running.current_output || "") + "</pre>";
+          if (tb) tb.textContent = ((r.running.task_type || "") + ": " + statusText).trim();
+          if (tbm) tbm.textContent = "polling";
         } else {
           outlineStatusEl.textContent = "";
           outlineStatusEl.className = "module-status";
@@ -1031,7 +1636,9 @@
           outlineRunningEl.style.display = "none";
           chapterRunningEl.style.display = "none";
           prefaceRunningEl.style.display = "none";
-          el.textContent = "无运行中任务。";
+          if (tb) tb.textContent = "Idle.";
+          if (tbm) tbm.textContent = "";
+          runningChapterId = null;
         }
       } catch (_) {}
     }
@@ -1048,11 +1655,23 @@
     }
 
     (async () => {
+      const clearBtn = document.getElementById("btnChapterStreamClear");
+      if (clearBtn) clearBtn.addEventListener("click", function() {
+        activeStreamBuffer = "";
+        const outEl = document.getElementById("chapterStreamOutput");
+        if (outEl) outEl.textContent = "";
+      });
+
+    // After a section finalize task completes, refresh approve dropdown automatically
+    // (loadBook/render/selectChapter already happen on stream done; ensure UI is updated)
       await loadConfig();
       await loadBooks();
       setContentTypeUI(currentBook ? currentBook.content_type : "academic", false);
       setContentTypeUI("academic", true);
-      setInterval(pollMonitor, 3000);
+      // 首次加载立即刷新一次运行状态，避免残留 UI
+      try { await pollMonitor(); } catch (_) {}
+      // Polling remains as a fallback; SSE handles live updates when available.
+      setInterval(pollMonitor, 6000);
     })();
   </script>
 </body>

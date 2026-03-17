@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from database.models import (
     BookStatus,
     Chapter,
     ChapterStatus,
+    Citation,
     GenerationTask,
     Outline,
     Reference,
@@ -57,7 +58,7 @@ ACADEMIC_SYSTEM_PROMPT = """
 # 输出规范
 - 标准 Markdown；数学用 LaTeX（如 $E=mc^2$）；重点术语可加粗；不使用复杂格式或特殊字体颜色。
 - **标题层级**：一级用「第一章」「第二章」；二级用「一、」「二、」；三级用「（一）」「（二）」；便于导出 Word 时统一排版。
-- **字数（必须满足）**：本章 **8000–12000 字**（中文字符），按细纲充分展开至完整收束，不足则补充论证与案例；不要在半途结束，务必写满整章。
+- **字数（必须满足）**：默认按任务要求控制字数（例如 3000 字左右）。若任务未显式给出字数目标，则写到结构完整、论证收束。
 """
 
 # ---------- 畅销书但有学术味：可读性强、有书感、仍讲清道理 ----------
@@ -82,7 +83,7 @@ BESTSELLER_ACADEMIC_SYSTEM_PROMPT = """
 # 输出规范
 - 标准 Markdown；术语可加粗；不使用复杂格式或特殊字体颜色。
 - **标题层级**：一级「第一章」、二级「一、」、三级「（一）」。
-- **字数（必须满足）**：本章 **8000–12000 字**（中文字符），写满整章勿半途结束。
+- **字数（必须满足）**：默认按任务要求控制字数（例如 3000 字左右）。若任务未显式给出字数目标，则写到结构完整、叙述收束。
 """
 
 # ---------- 网络小说「灵魂」：按 book_type=novel 切换使用 ----------
@@ -117,6 +118,127 @@ PROMPT_GLOSSARY_MAX = 5000
 PROMPT_REFERENCE_MAX = 4000
 PROMPT_OUTLINE_MAX = 3000
 PROMPT_STYLE_REFERENCE_MAX = 4000
+
+# ---------- 字数控制（中文字符） ----------
+# 目标：各阶段“约 3000 字”更稳定；默认统计口径为：中文字符 + 字母数字；忽略空白。
+_RE_CJK = re.compile(r"[\u4e00-\u9fff]")
+_RE_ALNUM = re.compile(r"[A-Za-z0-9]")
+
+
+def _count_cn_chars(text: str) -> int:
+    """统计“中文字符数”口径：CJK + 字母数字；忽略空白与常见标点。"""
+    if not text:
+        return 0
+    s = text
+    # 去掉空白
+    s = re.sub(r"\s+", "", s)
+    # CJK + alnum
+    return len(_RE_CJK.findall(s)) + len(_RE_ALNUM.findall(s))
+
+
+def _enforce_target_cn_len(
+    session: Session,
+    task: GenerationTask,
+    model: str,
+    base_messages: list[dict[str, str]],
+    initial_text: str,
+    *,
+    target: int = 3000,
+    min_len: int = 2800,
+    max_len: int = 3300,
+    max_rounds: int = 3,
+    progress_hint: str = "补足字数",
+) -> str:
+    """
+    若文本低于 min_len，则多轮“续写/扩写”到接近 target。
+    - 不要求逐字精确，但尽量落入 [min_len, max_len]
+    - 通过 stream_to_task 增量写入 task.current_output
+    """
+    text = (initial_text or "").strip()
+    cur_len = _count_cn_chars(text)
+    if cur_len >= min_len and cur_len <= max_len:
+        return text
+    if cur_len > max_len:
+        # 过长：优先保留（避免反复压缩引入漂移），后续阶段再做裁剪
+        return text
+
+    for i in range(max_rounds):
+        session.refresh(task)
+        if task.status == TaskStatus.CANCELLED:
+            task.progress_message = "已取消"
+            session.commit()
+            return text
+
+        task.progress_message = f"字数不足（{cur_len}/{target}），正在补足…（第 {i + 1}/{max_rounds} 轮）"
+        session.commit()
+
+        # 续写提示：要求不重复、补论证/例子/过渡，保持原结构与标题层级。
+        # 关键：禁止“为了凑字数重复生成同名小节”；若需扩写必须在原有小节内部向下扩展（增加（四）/（五）等更细标题或补充段落）。
+        existing_headings = _extract_section_headings(text)
+        headings_hint = ""
+        if existing_headings:
+            shown = "、".join(existing_headings[:24]) + ("…" if len(existing_headings) > 24 else "")
+            headings_hint = f"\n\n【已存在的小节标题（禁止重复输出这些标题行）】\n{shown}\n"
+        cont_user = (
+            "请在不重复已有内容的前提下，继续补写并扩展上述文本，使其更完整：\n"
+            "1) 保持原有标题与结构，不改变已写段落的含义；\n"
+            "2) 优先补充论证链条、过渡句、案例或数据化说明；\n"
+            "3) 不要引入与主题无关的新小节；\n"
+            "4) **禁止**为了凑字数而重复生成已存在的小节标题或复述同一段落；\n"
+            "5) 若需扩写，请在既有小节内部“向下生长”：补充更细层级标题（例如在「（一）」下增加「1）/2）」或「（四）」等）或补充段落；不要横向新增同级小节；\n"
+            f"4) 目标总字数约 {target} 字（中文字符口径），补到接近即可。\n\n"
+            + (headings_hint or "")
+            + "请直接输出“新增补写的内容”，不要重写全文。"
+        )
+        messages = list(base_messages) + [
+            {"role": "assistant", "content": text},
+            {"role": "user", "content": cont_user},
+        ]
+        added = _call_llm_with_retry(
+            session,
+            task,
+            messages,
+            model,
+            max_tokens=LLM_MAX_TOKENS_CAP,
+            progress_hint=progress_hint,
+            stream_to_task=True,
+        )
+        added = (added or "").strip()
+        if added:
+            text = (text.rstrip() + "\n\n" + added.lstrip()).strip()
+        cur_len = _count_cn_chars(text)
+        if cur_len >= min_len:
+            break
+    return text
+
+
+def _extract_section_headings(text: str) -> list[str]:
+    """
+    提取常见标题行（用于补写时提示“不要重复标题”）。
+    - Markdown: ##/### ...
+    - 中文层级：一、二、…；（一）（二）…
+    """
+    if not text:
+        return []
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    seen = set()
+    for line in lines:
+        s = (line or "").strip()
+        if not s:
+            continue
+        m = re.match(r"^(#{1,6})\s+(.+)$", s)
+        if m:
+            t = (m.group(2) or "").strip()
+            if t and t not in seen:
+                out.append(t)
+                seen.add(t)
+            continue
+        if re.match(r"^[一二三四五六七八九十]+[、．.]\s*.+$", s) or re.match(r"^[（(][一二三四五六七八九十]+[)）]\s*.+$", s):
+            if s not in seen:
+                out.append(s)
+                seen.add(s)
+    return out
 
 # 内容类型
 CONTENT_TYPE_ACADEMIC = "academic"
@@ -233,8 +355,10 @@ def run_task(
         _run_outline_l2(session, task, book, model)
     elif task.task_type == TaskType.PREFACE:
         _run_preface(session, task, book, model)
-    elif task.task_type in (TaskType.CHAPTER, TaskType.REWRITE):
+    elif task.task_type == TaskType.CHAPTER:
         _run_chapter(session, task, book, model, glossary_terms or [])
+    elif task.task_type == TaskType.REWRITE:
+        _run_rewrite(session, task, book, model, glossary_terms or [])
     elif task.task_type == TaskType.AUDIT:
         _run_audit(session, task, book, model)
     else:
@@ -245,9 +369,11 @@ def run_task(
         task.progress_message = "已取消"
         return
     task.status = TaskStatus.COMPLETED
-    task.completed_at = datetime.utcnow()
+    task.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     task.progress_message = "已完成"
     task.error_message = None
+    # 兜底：立即落库，避免线程退出/异常导致 UI 卡在“运行中”
+    session.commit()
 
 
 def _resolve_model(book: Book, task: GenerationTask) -> str:
@@ -282,6 +408,7 @@ def _call_llm_with_retry(
     model: str,
     max_tokens: int | None = None,
     progress_hint: str | None = None,
+    stream_to_task: bool = False,
 ) -> str:
     """带重试的 LiteLLM 调用，失败时更新 task.progress_message 并 commit 以便前端轮询可见。progress_hint 会显示在进度中，便于用户判断当前步骤。"""
     import litellm
@@ -295,7 +422,6 @@ def _call_llm_with_retry(
     kwargs: dict[str, Any] = {
         "timeout": LLM_REQUEST_TIMEOUT,
         "max_tokens": capped,
-        "max_completion_tokens": capped,
     }
     # 强制走代理：显式传 api_base 与 api_key，避免 LiteLLM 按模型名误路由到 DeepSeek 等
     if OPENAI_API_BASE and OPENAI_API_BASE.strip():
@@ -310,9 +436,45 @@ def _call_llm_with_retry(
                 task.progress_message = "调用模型中…" + hint_suffix
             else:
                 task.progress_message = f"API 曾失败，正在重试（第 {attempt + 1}/{LLM_MAX_RETRIES} 次尝试）…" + hint_suffix
+            if stream_to_task:
+                # Only reset when starting fresh; if caller already put existing text into
+                # current_output (e.g., enforcing length by appending), keep it.
+                if not (task.current_output or "").strip():
+                    task.current_output = ""
             session.commit()
-            resp = litellm.completion(model=model, messages=messages, **kwargs)
-            content = (resp.choices[0].message.content or "").strip()
+            if stream_to_task:
+                # Best-effort streaming: incrementally append deltas into task.current_output
+                # and commit periodically so SSE can push updates.
+                buf_parts: list[str] = []
+                last_commit_at = time.time()
+                resp_iter = litellm.completion(model=model, messages=messages, stream=True, **kwargs)
+                for chunk in resp_iter:
+                    delta = ""
+                    try:
+                        # OpenAI-like shape: choices[0].delta.content
+                        delta = (chunk.choices[0].delta.get("content") if hasattr(chunk.choices[0], "delta") else "") or ""
+                    except Exception:
+                        try:
+                            delta = (chunk.choices[0].delta.content or "")
+                        except Exception:
+                            delta = ""
+                    if not delta:
+                        continue
+                    buf_parts.append(delta)
+                    task.current_output = (task.current_output or "") + delta
+                    now = time.time()
+                    if now - last_commit_at >= 0.35 or len(task.current_output) % 400 == 0:
+                        session.commit()
+                        last_commit_at = now
+                    session.refresh(task)
+                    if task.status == TaskStatus.CANCELLED:
+                        task.progress_message = "已取消"
+                        session.commit()
+                        return ""
+                content = ("".join(buf_parts) or (task.current_output or "")).strip()
+            else:
+                resp = litellm.completion(model=model, messages=messages, **kwargs)
+                content = (resp.choices[0].message.content or "").strip()
             if not content:
                 raise ValueError("模型返回为空")
             return content
@@ -418,7 +580,7 @@ def _run_outline_l1(session: Session, task: GenerationTask, book: Book, model: s
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_content[:12000]},
     ]
-    content = _call_llm_with_retry(session, task, messages, model, progress_hint="全书大纲")
+    content = _call_llm_with_retry(session, task, messages, model, progress_hint="全书大纲", stream_to_task=True)
 
     session.refresh(task)
     if task.status == TaskStatus.CANCELLED:
@@ -435,6 +597,21 @@ def _run_outline_l1(session: Session, task: GenerationTask, book: Book, model: s
         except json.JSONDecodeError:
             raw_json_str = None
 
+    content = _normalize_paragraph_spacing(content)
+    # 字数控制：全书大纲目标 ~3000 中文字符（不含末尾 JSON）
+    task.current_output = content
+    content = _enforce_target_cn_len(
+        session,
+        task,
+        model,
+        messages,
+        content,
+        target=3000,
+        min_len=2800,
+        max_len=3300,
+        max_rounds=3,
+        progress_hint="补足大纲字数",
+    )
     content = _normalize_paragraph_spacing(content)
     intro, fragments = _parse_outline_to_intro_and_fragments(content)
     if book.outline:
@@ -507,7 +684,7 @@ def _run_outline_partial_revision(session: Session, task: GenerationTask, book: 
             {"role": "system", "content": system_msg},
             {"role": "user", "content": user_content[:12000]},
         ]
-        content = _call_llm_with_retry(session, task, messages, model, progress_hint="大纲局部修改")
+        content = _call_llm_with_retry(session, task, messages, model, progress_hint="大纲局部修改", stream_to_task=True)
         session.refresh(task)
         if task.status == TaskStatus.CANCELLED:
             return
@@ -553,7 +730,7 @@ def _run_outline_partial_revision(session: Session, task: GenerationTask, book: 
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_content[:14000]},
     ]
-    content = _call_llm_with_retry(session, task, messages, model, progress_hint="大纲局部修改")
+    content = _call_llm_with_retry(session, task, messages, model, progress_hint="大纲局部修改", stream_to_task=True)
     session.refresh(task)
     if task.status == TaskStatus.CANCELLED:
         return
@@ -634,11 +811,26 @@ def _run_preface(session: Session, task: GenerationTask, book: Book, model: str)
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_content[:12000]},
     ]
-    content = _call_llm_with_retry(session, task, messages, model, progress_hint="前言")
+    content = _call_llm_with_retry(session, task, messages, model, progress_hint="前言", stream_to_task=True)
 
     session.refresh(task)
     if task.status == TaskStatus.CANCELLED:
         return
+    content = _normalize_paragraph_spacing(content)
+    # 字数控制：前言目标 ~3000 中文字符
+    task.current_output = content
+    content = _enforce_target_cn_len(
+        session,
+        task,
+        model,
+        messages,
+        content,
+        target=3000,
+        min_len=2800,
+        max_len=3300,
+        max_rounds=3,
+        progress_hint="补足前言字数",
+    )
     content = _normalize_paragraph_spacing(content)
     book.preface = content
     task.current_output = content
@@ -690,7 +882,7 @@ def _run_outline_l2(session: Session, task: GenerationTask, book: Book, model: s
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_content},
     ]
-    outline_content = _call_llm_with_retry(session, task, messages, model, progress_hint="本章细纲")
+    outline_content = _call_llm_with_retry(session, task, messages, model, progress_hint="本章细纲", stream_to_task=True)
     outline_content = _normalize_paragraph_spacing(outline_content)
     chapter.outline_content = outline_content
     task.current_output = outline_content
@@ -753,13 +945,20 @@ def _run_academic_chapter_by_sections(
     parts: list[str] = []
     for i, sec in enumerate(sections):
         task.progress_message = f"正在撰写：{chapter.title} — {sec['title']}…"
+        # 将已完成部分持续写回，便于前端轮询时“看到正在输出”
+        if parts:
+            task.current_output = "\n\n".join(parts).strip()
         session.commit()
         session.refresh(task)
         if task.status == TaskStatus.CANCELLED:
             return "\n\n".join(parts)
 
         section_outline = (sec.get("body") or sec.get("title") or "").strip() or sec["title"]
-        user_content = f"""请根据以下 [Current_Chapter_Outline] 和 [Pre-defined_Glossary]、[Reference] **仅撰写本章中的这一小节**正文，严格遵循系统提示中的写作原则与输出规范。
+        draft_ctx = (getattr(chapter, "draft_content", None) or "").strip()
+        draft_block = ""
+        if draft_ctx:
+            draft_block = "\n\n[Chapter_Draft]（本章草稿，用于保持叙述一致性与衔接；不要逐字照抄，但要保持结构与口径一致）\n" + draft_ctx[:4500]
+        user_content = f"""请根据以下 [Current_Chapter_Outline] 和 [Pre-defined_Glossary]、[Reference] **仅撰写本章中的这一小节**正文，严格遵循系统提示中的写作原则与输出规范。写作时要与本章草稿口径一致、与已完成小节衔接自然。{draft_block}
 
 [Current_Chapter_Outline]（本章完整细纲，供上下文）
 {chapter_outline[:3500]}
@@ -776,7 +975,12 @@ def _run_academic_chapter_by_sections(
 本小节细纲要点：
 {section_outline[:800]}
 
-**字数要求**：本小节正文约 **2000–3500 字**（中文字符），只输出这一小节的 Markdown 正文，不要输出小节标题（标题已给出），不要输出「本节小结」等收束语以外的多余说明。与前后小节衔接自然，本小节须写完整、勿在半途截断。"""
+**输出格式（必须严格遵守）**：
+1) 第一行必须是该小节标题：`## {sec['title']}`（标题文本必须完全一致）；
+2) 随后空一行再写正文段落；
+3) 只输出这一小节（包含标题行），不要输出其他小节内容或额外说明。
+
+**字数要求**：本小节正文约 **3000 字**（中文字符，允许 2800–3300）。与前后小节衔接自然，本小节须写完整、勿在半途截断。"""
         if revision_instruction:
             user_content += f"\n\n【用户修改意图】{revision_instruction}"
         style_block = _format_publisher_style(book)
@@ -787,12 +991,192 @@ def _run_academic_chapter_by_sections(
             {"role": "user", "content": user_content},
         ]
         section_text = _call_llm_with_retry(
-            session, task, messages, model, max_tokens=5000,
+            session,
+            task,
+            messages,
+            model,
+            max_tokens=5000,
             progress_hint=f"第 {i + 1}/{len(sections)} 节：{sec['title']}",
+            stream_to_task=True,
         )
         if section_text:
-            parts.append(_normalize_paragraph_spacing(section_text.strip()))
+            section_text = _normalize_paragraph_spacing(section_text.strip())
+            # 每小节字数控制：目标 ~3000 中文字符
+            task.current_output = section_text
+            section_text = _enforce_target_cn_len(
+                session,
+                task,
+                model,
+                messages,
+                section_text,
+                target=3000,
+                min_len=2800,
+                max_len=3300,
+                max_rounds=2,
+                progress_hint=f"补足小节字数：{sec['title']}",
+            )
+            parts.append(_normalize_paragraph_spacing(section_text))
+            # 每节完成后立即写回数据库，前端可在“当前任务”区域实时看到累积输出
+            task.current_output = "\n\n".join(parts).strip()
+            session.commit()
     return "\n\n".join(parts)
+
+
+def _run_chapter_draft_3000(
+    session: Session,
+    task: GenerationTask,
+    book: Book,
+    model: str,
+    chapter: Chapter,
+    glossary_block: str,
+    reference_block: str,
+    revision_instruction: str | None,
+) -> str:
+    """章节草稿：围绕本章 outline_fragment/outline_content，生成约 3000 中文字符的草稿。"""
+    task.progress_message = f"生成章节草稿：{chapter.title}…"
+    session.commit()
+    session.refresh(task)
+    if task.status == TaskStatus.CANCELLED:
+        return ""
+
+    chapter_scope_outline = (getattr(chapter, "outline_fragment", None) or "").strip() or (chapter.outline_content or "").strip()
+    if not chapter_scope_outline:
+        chapter_scope_outline = f"## 第 {chapter.order_index} 章 {chapter.title}\n-（未提供细纲，请先生成或编辑细纲）"
+
+    if _is_novel(book):
+        system_msg = FICTION_SYSTEM_PROMPT
+        user_content = f"""请根据以下本章要点，撰写本章**草稿**（约 3000 字，中文字符，允许 2800–3300）。
+
+本章标题：**{chapter.title}**
+
+[Current_Plot_Outline]（本章要点）
+{chapter_scope_outline[:4000]}
+
+要求：
+1) 输出 Markdown 分段正文；
+2) 只写草稿，不要求全章超长；
+3) 不要随意更换人名称呼或引入未提及设定。"""
+    else:
+        system_msg = _get_academic_system_prompt(book)
+        # 权威结构信息：避免“全书共5章”这类事实错误。若数据库已有章节列表，则将其作为唯一可信来源。
+        book_structure = _format_book_structure(session, book.id)
+        user_content = f"""请根据以下信息撰写本章**章节草稿**（约 3000 字，中文字符，允许 2800–3300），用于后续逐节终稿。
+
+本章标题：**{chapter.title}**
+
+[Book_Structure]（权威信息：若需描述“全书结构/章节数”，必须严格以此为准；不得自行臆造章数）
+{book_structure}
+
+[Current_Chapter_Outline]（仅本章范围，不要扩展到其他章节）
+{chapter_scope_outline[:4000]}
+
+[Pre-defined_Glossary]
+{glossary_block}
+
+[Reference]
+{reference_block}
+
+要求：
+1) 输出 Markdown 正文，**必须按二级小节展开**：若细纲中已有 2–6 个小节，请逐一写出对应小节（用「一、二、三、…」），每个小节下至少再拆 2 个三级标题（用「（一）（二）…」），以实现“向下扩写”而非重复横向小节；
+2) 必须贴合本章要点，不要引入与本章无关的新主题；
+3) **禁止重复**：不得为了凑字数重复输出同名小节或复述同一段落；需要补充时只在既有小节内部增加更细层级标题或补充论证/案例/过渡；
+4) 术语严格按术语表，不做同义替换。"""
+    if revision_instruction:
+        user_content += "\n\n【用户修改意图】" + revision_instruction
+    style_block = _format_publisher_style(book)
+    if style_block:
+        user_content += "\n\n" + style_block
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": user_content},
+    ]
+    draft = _call_llm_with_retry(session, task, messages, model, max_tokens=6000, progress_hint="章节草稿", stream_to_task=True)
+    session.refresh(task)
+    if task.status == TaskStatus.CANCELLED:
+        return ""
+    draft = _normalize_paragraph_spacing(draft)
+    task.current_output = draft
+    draft = _enforce_target_cn_len(
+        session,
+        task,
+        model,
+        messages,
+        draft,
+        target=3000,
+        min_len=2800,
+        max_len=3300,
+        max_rounds=2,
+        progress_hint="补足章节草稿字数",
+    )
+    return _normalize_paragraph_spacing(draft)
+
+
+def _format_book_structure(session: Session, book_id: int) -> str:
+    """以数据库为准输出全书章节结构（章数与标题）。"""
+    try:
+        chapters = session.execute(
+            select(Chapter).where(Chapter.book_id == book_id).order_by(Chapter.order_index)
+        ).scalars().all()
+    except Exception:
+        chapters = []
+    if not chapters:
+        return "（暂无章节列表；如需描述全书结构，请使用谨慎表述，避免断言具体章数）"
+    lines = [f"本书共 {len(chapters)} 章："]
+    for ch in chapters[:50]:
+        lines.append(f"- 第 {ch.order_index} 章：{ch.title}")
+    return "\n".join(lines)
+
+
+def _run_chapter_section_finalize_3000(
+    session: Session,
+    task: GenerationTask,
+    book: Book,
+    model: str,
+    chapter: Chapter,
+    glossary_block: str,
+    reference_block: str,
+    chapter_outline: str,
+    revision_instruction: str | None,
+) -> str:
+    """逐节终稿：按 outline 解析小节，每小节约 3000 字，最后拼接成整章。"""
+    sections = _parse_outline_to_sections(chapter_outline)
+    if not sections:
+        sections = [{"title": chapter.title, "body": chapter_outline}]
+    task.current_output = f"# {chapter.title}\n\n"
+    session.commit()
+    # 可选：只生成某一小节（由 task.params.section_title 指定）
+    only_title = None
+    if task.params and isinstance(task.params, dict) and task.params.get("section_title"):
+        only_title = str(task.params.get("section_title") or "").strip() or None
+    if only_title:
+        picked = next((s for s in sections if (s.get("title") or "").strip() == only_title), None)
+        if not picked:
+            picked = {"title": only_title, "body": only_title}
+        return _run_academic_chapter_by_sections(
+            session,
+            task,
+            book,
+            model,
+            chapter,
+            glossary_block,
+            reference_block,
+            chapter_outline,
+            [picked],
+            revision_instruction,
+        )
+    return _run_academic_chapter_by_sections(
+        session,
+        task,
+        book,
+        model,
+        chapter,
+        glossary_block,
+        reference_block,
+        chapter_outline,
+        sections,
+        revision_instruction,
+    )
 
 
 def _run_chapter(
@@ -815,6 +1199,9 @@ def _run_chapter(
     glossary_block = _format_glossary(glossary_terms)
     reference_block = _format_references(session, book.id)
     chapter_outline = (chapter.outline_content or "").strip() or "（无细纲）"
+    stage = None
+    if task.params and isinstance(task.params, dict):
+        stage = (str(task.params.get("stage") or "").strip().lower() or None)
 
     if _is_novel(book):
         character_block = _format_character_cards(glossary_terms)
@@ -845,7 +1232,13 @@ def _run_chapter(
             {"role": "system", "content": FICTION_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
-        content = _call_llm_with_retry(session, task, messages, model, max_tokens=8000, progress_hint="本章正文")
+        if stage == "chapter_draft":
+            rev = None
+            if task.params and isinstance(task.params, dict) and task.params.get("revision_instruction"):
+                rev = str(task.params.get("revision_instruction") or "").strip() or None
+            content = _run_chapter_draft_3000(session, task, book, model, chapter, glossary_block, reference_block, rev)
+        else:
+            content = _call_llm_with_retry(session, task, messages, model, max_tokens=8000, progress_hint="本章正文", stream_to_task=True)
         session.refresh(task)
         if task.status == TaskStatus.CANCELLED:
             return
@@ -854,19 +1247,45 @@ def _run_chapter(
         revision_instruction = None
         if task.params and isinstance(task.params, dict) and task.params.get("revision_instruction"):
             revision_instruction = str(task.params["revision_instruction"]).strip() or None
-        sections = _parse_outline_to_sections(chapter_outline)
-        if len(sections) >= 2:
-            content = _run_academic_chapter_by_sections(
-                session, task, book, model, chapter,
-                glossary_block, reference_block, chapter_outline,
-                sections, revision_instruction,
+        if stage == "chapter_draft":
+            content = _run_chapter_draft_3000(session, task, book, model, chapter, glossary_block, reference_block, revision_instruction)
+            session.refresh(task)
+            if task.status == TaskStatus.CANCELLED:
+                return
+            min_chapter_chars = 2800
+        elif stage == "section_finalize":
+            content = _run_chapter_section_finalize_3000(
+                session,
+                task,
+                book,
+                model,
+                chapter,
+                glossary_block,
+                reference_block,
+                chapter_outline,
+                revision_instruction,
             )
             session.refresh(task)
             if task.status == TaskStatus.CANCELLED:
                 return
-            min_chapter_chars = 6000
+            min_chapter_chars = 2800
         else:
-            user_content = f"""请根据以下 [Current_Chapter_Outline] 和 [Pre-defined_Glossary]、[Reference] 扩写本章正文，严格遵循系统提示中的写作原则与输出规范。
+            sections = _parse_outline_to_sections(chapter_outline)
+            if len(sections) >= 2:
+                # 分段生成时，先写入一个占位，便于前端立刻显示“开始输出”
+                task.current_output = f"# {chapter.title}\n\n"
+                session.commit()
+                content = _run_academic_chapter_by_sections(
+                    session, task, book, model, chapter,
+                    glossary_block, reference_block, chapter_outline,
+                    sections, revision_instruction,
+                )
+                session.refresh(task)
+                if task.status == TaskStatus.CANCELLED:
+                    return
+                min_chapter_chars = 6000
+            else:
+                user_content = f"""请根据以下 [Current_Chapter_Outline] 和 [Pre-defined_Glossary]、[Reference] 扩写本章正文，严格遵循系统提示中的写作原则与输出规范。
 
 [Current_Chapter_Outline]
 {chapter_outline[:4000]}
@@ -882,25 +1301,33 @@ def _run_chapter(
 **字数要求（必须满足）**：本章正文不少于 **6000 字**、不超过 **12000 字**（按中文字符计）。请按细纲逐节充分展开至整章完整收束，保证论证完整、层次分明；勿在半途结束。禁止敷衍或堆砌。
 
 请直接输出本章正文（Markdown），不要输出"本章正文如下"等前缀。"""
-            revision = ""
-            if revision_instruction:
-                revision = "\n\n【用户明确要求，必须优先满足】\n用户对本章的修改意图：{}\n请严格按上述意图调整正文。".format(revision_instruction)
-            user_content += revision
-            style_block = _format_publisher_style(book)
-            if style_block:
-                user_content += "\n\n" + style_block
-            messages = [
-                {"role": "system", "content": _get_academic_system_prompt(book)},
-                {"role": "user", "content": user_content},
-            ]
-            content = _call_llm_with_retry(session, task, messages, model, max_tokens=8192, progress_hint="本章正文")
-            session.refresh(task)
-            if task.status == TaskStatus.CANCELLED:
-                return
-            min_chapter_chars = 6000
+                revision = ""
+                if revision_instruction:
+                    revision = "\n\n【用户明确要求，必须优先满足】\n用户对本章的修改意图：{}\n请严格按上述意图调整正文。".format(revision_instruction)
+                user_content += revision
+                style_block = _format_publisher_style(book)
+                if style_block:
+                    user_content += "\n\n" + style_block
+                messages = [
+                    {"role": "system", "content": _get_academic_system_prompt(book)},
+                    {"role": "user", "content": user_content},
+                ]
+                content = _call_llm_with_retry(
+                    session,
+                    task,
+                    messages,
+                    model,
+                    max_tokens=8192,
+                    progress_hint="本章正文",
+                    stream_to_task=True,
+                )
+                session.refresh(task)
+                if task.status == TaskStatus.CANCELLED:
+                    return
+                min_chapter_chars = 6000
 
     # 学术专著不足 6000 字时二次扩写；网文不足 2000 字时也可补足
-    if len(content) < min_chapter_chars:
+    if content and len(content) < min_chapter_chars and stage not in ("chapter_draft", "section_finalize"):
         task.progress_message = "正文偏短，正在扩写补足…"
         session.commit()
         session.refresh(task)
@@ -909,10 +1336,277 @@ def _run_chapter(
         content = _expand_short_chapter(session, task, book, model, content, chapter, glossary_terms, min_chapter_chars)
 
     content = _normalize_paragraph_spacing(content)
-    chapter.content = content
-    chapter.status = ChapterStatus.DRAFT.value
-    chapter.word_count = len(content)
-    task.current_output = content
+    if stage == "chapter_draft":
+        # 草稿独立存储，避免覆盖终稿，便于后续逐节终稿/对照修改
+        chapter.draft_content = content
+        # 不改变终稿 content；但仍把输出写到 task.current_output 方便前端实时显示
+        task.current_output = content
+        chapter.status = ChapterStatus.DRAFT.value
+    else:
+        # 若是“只生成某一小节”，则把该小节写入终稿正文对应位置（优先以草稿为底稿）
+        only_sec = None
+        if stage == "section_finalize" and task.params and isinstance(task.params, dict) and task.params.get("section_title"):
+            only_sec = str(task.params.get("section_title") or "").strip() or None
+        if only_sec:
+            base = (chapter.content or "").strip() or (getattr(chapter, "draft_content", None) or "").strip()
+            # 确保 content 包含标题行；若没有则补上
+            sec_text = content
+            if sec_text and not re.match(r"^#{2,3}\s+", sec_text.strip().splitlines()[0] if sec_text.strip().splitlines() else ""):
+                sec_text = "## " + only_sec + "\n\n" + sec_text
+            try:
+                before, _, after = _split_markdown_section_by_title(base, only_sec) if base else ("", "", "")
+                merged = "\n\n".join([p for p in [before, sec_text, after] if p and p.strip()]).strip()
+            except Exception:
+                merged = ("\n\n".join([base, sec_text]).strip() if base else sec_text)
+            chapter.content = merged
+        else:
+            chapter.content = content
+        if stage == "section_finalize":
+            chapter.status = ChapterStatus.FINAL.value
+        else:
+            chapter.status = ChapterStatus.DRAFT.value
+        chapter.word_count = len(chapter.content or "")
+        task.current_output = chapter.content or content
+
+        # 章节终稿/分节终稿：同步落库引用关系（从正文中的 [Source_ID] 解析）
+        if not _is_novel(book):
+            try:
+                _sync_citations_from_text(session, chapter.id, chapter.content or "")
+            except Exception as e:
+                logger.warning("sync citations failed: %s", e)
+
+
+def _split_markdown_section_by_title(text: str, title: str) -> tuple[str, str, str]:
+    """
+    以标题定位一个小节（## 或 ###），返回 (before, section_with_heading, after)。
+    - title 允许传入不带 # 的纯标题文本
+    - 若找不到则抛 ValueError
+    """
+    if not text or not title:
+        raise ValueError("空文本或空标题无法定位小节")
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    t = title.strip().lstrip("#").strip()
+    start_idx = None
+    start_level = None
+    for i, line in enumerate(lines):
+        m = re.match(r"^(#{2,3})\s+(.*)$", line.strip())
+        if not m:
+            continue
+        lvl = len(m.group(1))
+        name = (m.group(2) or "").strip()
+        if name == t:
+            start_idx = i
+            start_level = lvl
+            break
+    if start_idx is None or start_level is None:
+        raise ValueError(f"未找到标题为「{t}」的小节（仅支持 ##/### 标题）")
+    end_idx = len(lines)
+    for j in range(start_idx + 1, len(lines)):
+        m2 = re.match(r"^(#{2,3})\s+(.*)$", lines[j].strip())
+        if not m2:
+            continue
+        lvl2 = len(m2.group(1))
+        if lvl2 <= start_level:
+            end_idx = j
+            break
+    before = "\n".join(lines[:start_idx]).rstrip()
+    section = "\n".join(lines[start_idx:end_idx]).strip()
+    after = "\n".join(lines[end_idx:]).lstrip()
+    return before, section, after
+
+
+def _sync_citations_from_text(session: Session, chapter_id: int, text: str) -> None:
+    """
+    从正文中解析引用标注 [123] 并同步到 citations 表。
+    - 仅解析数字方括号，避免误把 [Reference] 等当作引用
+    - 会先清空该章旧 citations，再写入新引用（去重）
+    """
+    if not chapter_id:
+        return
+    src = (text or "").strip()
+    # 清空旧引用
+    session.query(Citation).filter(Citation.chapter_id == chapter_id).delete()
+    if not src:
+        session.flush()
+        return
+    ids = []
+    seen = set()
+    for m in re.finditer(r"\[(\d{1,8})\]", src):
+        rid = int(m.group(1))
+        if rid <= 0 or rid in seen:
+            continue
+        seen.add(rid)
+        ids.append(rid)
+    if not ids:
+        session.flush()
+        return
+    # 校验 reference 是否存在（避免插入无效外键）
+    existing = set(session.execute(select(Reference.id).where(Reference.id.in_(ids))).scalars().all())
+    for rid in ids:
+        if rid not in existing:
+            continue
+        session.add(Citation(chapter_id=chapter_id, reference_id=rid, location_in_text=None, snippet=None))
+    session.flush()
+
+
+def _split_text_by_anchors(text: str, anchor_start: str, anchor_end: str) -> tuple[str, str, str]:
+    """用起止片段定位一个范围，返回 (before, middle, after)。"""
+    if not text:
+        raise ValueError("空文本无法定位段落范围")
+    s = text
+    a = (anchor_start or "").strip()
+    b = (anchor_end or "").strip()
+    if not a or not b:
+        raise ValueError("anchor_start/anchor_end 不能为空")
+    i = s.find(a)
+    if i < 0:
+        raise ValueError("未找到 anchor_start")
+    j = s.find(b, i + len(a))
+    if j < 0:
+        raise ValueError("未找到 anchor_end")
+    j2 = j + len(b)
+    return s[:i].rstrip(), s[i:j2].strip(), s[j2:].lstrip()
+
+
+def _run_rewrite(
+    session: Session,
+    task: GenerationTask,
+    book: Book,
+    model: str,
+    glossary_terms: list[dict[str, Any]],
+) -> None:
+    """按 scope 定向重写：只改指定片段，不改其他内容。"""
+    if not task.chapter_id:
+        raise ValueError("rewrite 任务缺少 chapter_id")
+    chapter = session.get(Chapter, task.chapter_id)
+    if not chapter:
+        raise ValueError(f"Chapter id={task.chapter_id} 不存在")
+
+    params = task.params if isinstance(task.params, dict) else {}
+    scope = (params.get("scope") or "").strip()
+    instruction = (params.get("instruction") or params.get("revision_instruction") or "").strip()
+    if not scope:
+        raise ValueError("rewrite 缺少 scope")
+    if not instruction:
+        raise ValueError("rewrite 缺少 instruction")
+
+    glossary_block = _format_glossary(glossary_terms)
+    reference_block = _format_references(session, book.id)
+
+    task.progress_message = "正在定向修改…"
+    session.commit()
+    session.refresh(task)
+    if task.status == TaskStatus.CANCELLED:
+        return
+
+    if scope == "outline_chapter_fragment":
+        frag = (getattr(chapter, "outline_fragment", None) or "").strip()
+        if not frag:
+            raise ValueError("本章 outline_fragment 为空，无法定向修改大纲片段")
+        user_content = f"""请根据【用户修改意图】仅修改下面这一段「本章大纲片段」，不改动未提及信息，不新增其他章节内容。
+
+【用户修改意图】
+{instruction}
+
+【本章大纲片段】
+{frag}
+
+要求：输出修改后的「本章大纲片段」全文（Markdown）。"""
+        messages = [
+            {"role": "system", "content": "你是严谨的图书策划编辑，只修改被要求的段落，未提及部分保持不变。"},
+            {"role": "user", "content": user_content},
+        ]
+        new_frag = _call_llm_with_retry(session, task, messages, model, max_tokens=2500, progress_hint="定向修改大纲片段", stream_to_task=True)
+        session.refresh(task)
+        if task.status == TaskStatus.CANCELLED:
+            return
+        new_frag = _normalize_paragraph_spacing(new_frag)
+        chapter.outline_fragment = new_frag
+        # 同步重建 outline.content（若存在 Outline.intro）
+        if book.outline:
+            chapters_sorted = sorted(session.execute(select(Chapter).where(Chapter.book_id == book.id).order_by(Chapter.order_index)).scalars().all(), key=lambda c: c.order_index)
+            intro = getattr(book.outline, "intro", None) or ""
+            book.outline.content = _build_outline_content(intro, chapters_sorted) or (book.outline.content or "")
+        task.current_output = new_frag
+        return
+
+    target = (params.get("target") or "").strip().lower() or "final"
+    if target not in ("final", "draft"):
+        target = "final"
+    content = ((chapter.draft_content if target == "draft" else chapter.content) or "").strip()
+    if not content:
+        raise ValueError("目标文本为空，无法定向修改；请先生成正文或草稿")
+
+    if scope == "chapter_section":
+        section_title = (params.get("section_title") or "").strip()
+        before, section, after = _split_markdown_section_by_title(content, section_title)
+        user_content = f"""请仅重写下面这一小节（包含标题行），满足【用户修改意图】。不要改动其他小节；不要改变小节标题文本；术语遵守术语表。
+
+【用户修改意图】
+{instruction}
+
+[Pre-defined_Glossary]
+{glossary_block}
+
+[Reference]
+{reference_block}
+
+【要重写的小节】
+{section}
+
+要求：只输出“重写后的小节”（包含原小节标题行），不要输出其他内容。"""
+        system_msg = _get_academic_system_prompt(book) if not _is_novel(book) else FICTION_SYSTEM_PROMPT
+        messages = [{"role": "system", "content": system_msg}, {"role": "user", "content": user_content}]
+        new_section = _call_llm_with_retry(session, task, messages, model, max_tokens=5000, progress_hint="定向重写小节", stream_to_task=True)
+        session.refresh(task)
+        if task.status == TaskStatus.CANCELLED:
+            return
+        new_section = _normalize_paragraph_spacing(new_section)
+        stitched = "\n\n".join([p for p in [before, new_section, after] if p and p.strip()]).strip()
+        if target == "draft":
+            chapter.draft_content = stitched
+        else:
+            chapter.content = stitched
+            chapter.word_count = len(stitched)
+        task.current_output = new_section
+        return
+
+    if scope == "chapter_paragraph_range":
+        a = (params.get("anchor_start") or "").strip()
+        b = (params.get("anchor_end") or "").strip()
+        before, middle, after = _split_text_by_anchors(content, a, b)
+        user_content = f"""请仅重写下面这一段文本范围（保持其在全文中的位置不变），满足【用户修改意图】。不要改动其他段落；保持上下文衔接自然。
+
+【用户修改意图】
+{instruction}
+
+[Pre-defined_Glossary]
+{glossary_block}
+
+[Reference]
+{reference_block}
+
+【要重写的范围】
+{middle}
+
+要求：只输出“重写后的范围文本”，不要输出其他内容。"""
+        system_msg = _get_academic_system_prompt(book) if not _is_novel(book) else FICTION_SYSTEM_PROMPT
+        messages = [{"role": "system", "content": system_msg}, {"role": "user", "content": user_content}]
+        new_mid = _call_llm_with_retry(session, task, messages, model, max_tokens=3000, progress_hint="定向重写段落", stream_to_task=True)
+        session.refresh(task)
+        if task.status == TaskStatus.CANCELLED:
+            return
+        new_mid = _normalize_paragraph_spacing(new_mid)
+        stitched = "\n\n".join([p for p in [before, new_mid, after] if p and p.strip()]).strip()
+        if target == "draft":
+            chapter.draft_content = stitched
+        else:
+            chapter.content = stitched
+            chapter.word_count = len(stitched)
+        task.current_output = new_mid
+        return
+
+    raise ValueError(f"不支持的 rewrite scope: {scope}")
 
 
 def _expand_short_chapter(
@@ -956,7 +1650,7 @@ def _expand_short_chapter(
         {"role": "system", "content": system_msg},
         {"role": "user", "content": user_content},
     ]
-    expanded = _call_llm_with_retry(session, task, messages, model, max_tokens=min(max_tok, 8192), progress_hint="扩写补足")
+    expanded = _call_llm_with_retry(session, task, messages, model, max_tokens=min(max_tok, 8192), progress_hint="扩写补足", stream_to_task=True)
     # 若扩写后仍偏短或扩写失败，仍返回扩写结果
     if expanded and len(expanded) > len(content):
         return _normalize_paragraph_spacing(expanded)
@@ -1032,7 +1726,7 @@ def _run_audit(session: Session, task: GenerationTask, book: Book, model: str) -
                     {"role": "user", "content": user_content},
                 ]
             try:
-                audit_note = _call_llm_with_retry(session, task, messages, model, progress_hint="审计中")
+                audit_note = _call_llm_with_retry(session, task, messages, model, progress_hint="审计中", stream_to_task=True)
                 task.current_output = "审计完成\n\n" + audit_note
             except Exception as e:
                 logger.warning("审计 LLM 调用失败，仅更新状态: %s", e)

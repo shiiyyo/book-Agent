@@ -54,6 +54,8 @@ def init_db() -> None:
     ensure_academic_tone_column()
     ensure_outline_intro_column()
     ensure_chapter_outline_fragment_column()
+    ensure_chapter_draft_content_column()
+    ensure_chapter_approved_sections_column()
 
 
 def ensure_content_type_column() -> None:
@@ -174,6 +176,38 @@ def ensure_chapter_outline_fragment_column() -> None:
                 print("[init_db] 已为 chapters 表添加 outline_fragment 列")
     except Exception as e:
         print("[init_db] chapter outline_fragment 列检查/添加失败:", e)
+
+
+def ensure_chapter_draft_content_column() -> None:
+    """确保 chapters 表存在 draft_content 列（章节草稿，独立于终稿 content）。"""
+    if "sqlite" not in DATABASE_URL:
+        return
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            r = conn.execute(text("PRAGMA table_info(chapters)"))
+            cols = [row[1] for row in r.fetchall()]
+            if "draft_content" not in cols:
+                conn.execute(text("ALTER TABLE chapters ADD COLUMN draft_content TEXT"))
+                print("[init_db] 已为 chapters 表添加 draft_content 列")
+    except Exception as e:
+        print("[init_db] chapter draft_content 列检查/添加失败:", e)
+
+
+def ensure_chapter_approved_sections_column() -> None:
+    """确保 chapters 表存在 approved_sections 列（JSON/TEXT，记录已审核通过的小节标题列表）。"""
+    if "sqlite" not in DATABASE_URL:
+        return
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            r = conn.execute(text("PRAGMA table_info(chapters)"))
+            cols = [row[1] for row in r.fetchall()]
+            if "approved_sections" not in cols:
+                conn.execute(text("ALTER TABLE chapters ADD COLUMN approved_sections TEXT"))
+                print("[init_db] 已为 chapters 表添加 approved_sections 列")
+    except Exception as e:
+        print("[init_db] chapter approved_sections 列检查/添加失败:", e)
 
 
 def get_session() -> Session:

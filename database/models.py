@@ -138,6 +138,8 @@ class Chapter(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     outline_fragment: Mapped[Optional[str]] = mapped_column(Text)
     outline_content: Mapped[Optional[str]] = mapped_column(Text)
+    draft_content: Mapped[Optional[str]] = mapped_column(Text)
+    approved_sections: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
     content: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default=ChapterStatus.PENDING.value)
     word_count: Mapped[Optional[int]] = mapped_column(Integer)

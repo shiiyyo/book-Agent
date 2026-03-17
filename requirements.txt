@@ -1,4 +1,4 @@
-# Academic-Director 依赖
+# Academic-Director dependencies
 # Python 3.10+
 
 streamlit>=1.28.0
@@ -7,5 +7,5 @@ litellm>=1.30.0
 python-dotenv>=1.0.0
 flask>=3.0.0
 python-docx>=1.0.0
-# 使用 PostgreSQL 时取消下一行注释
+# Uncomment next line if using PostgreSQL
 # psycopg2-binary>=2.9.0
